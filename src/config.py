@@ -1,9 +1,10 @@
 # config.py
-import os
-from dotenv import load_dotenv
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,7 +19,14 @@ _allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
 if _allowed_origins_env:
     ALLOWED_ORIGINS: list[str] = _allowed_origins_env.split(",")
 else:
-    ALLOWED_ORIGINS = ["http://localhost", "http://127.0.0.1", "http://*", "https://localhost", "https://127.0.0.1", "vscode-file://vscode-app"]
+    ALLOWED_ORIGINS = [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://*",
+        "https://localhost",
+        "https://127.0.0.1",
+        "vscode-file://vscode-app",
+    ]
 
 _allowed_hosts_env = os.getenv("ALLOWED_HOSTS")
 if _allowed_hosts_env:
@@ -31,7 +39,7 @@ root_logger = logging.getLogger()
 root_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 # Create formatter
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 # Remove existing handlers to avoid duplication if script is reloaded
 for handler in root_logger.handlers[:]:
@@ -46,11 +54,7 @@ root_logger.addHandler(console_handler)
 log_file = Path(LOG_FILE_PATH)
 log_file.parent.mkdir(parents=True, exist_ok=True)
 
-file_handler = RotatingFileHandler(
-    log_file,
-    maxBytes=LOG_MAX_BYTES,
-    backupCount=LOG_BACKUP_COUNT
-)
+file_handler = RotatingFileHandler(log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT)
 file_handler.setFormatter(log_formatter)
 root_logger.addHandler(file_handler)
 
@@ -128,7 +132,9 @@ elif EMBEDDING_PROVIDER == "huggingface":
         raise ValueError("HuggingFace model is required when EMBEDDING_PROVIDER is 'huggingface'.")
 else:
     EMBEDDING_PROVIDER = None
-    logger.info(f"No EMBEDDING_PROVIDER selected or it is set to None. Disabling embedding features.")
+    logger.info("No EMBEDDING_PROVIDER selected or it is set to None. Disabling embedding features.")
 
 logger.info(f"Read-only mode: {MCP_READ_ONLY}")
-logger.info(f"Logging to console and to file: {LOG_FILE_PATH} (Level: {LOG_LEVEL}, MaxSize: {LOG_MAX_BYTES}B, Backups: {LOG_BACKUP_COUNT})")
+logger.info(
+    f"Logging to console and to file: {LOG_FILE_PATH} (Level: {LOG_LEVEL}, MaxSize: {LOG_MAX_BYTES}B, Backups: {LOG_BACKUP_COUNT})"
+)

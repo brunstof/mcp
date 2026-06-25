@@ -4,8 +4,8 @@ Test script to query the geography database via MCP server.
 Runs the MCP server tools directly (not via network).
 """
 
-import sys
 import asyncio
+import sys
 from pathlib import Path
 
 # Add src to path
@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Patch environment for local testing
 import os
+
 # Detect if running inside Docker container
 if not os.path.exists("/.dockerenv"):
     # Running on host - use localhost to connect via mapped port
@@ -65,10 +66,7 @@ async def main():
 
         # Test execute_sql - List continents
         print("\n5. Testing execute_sql() - List all continents...")
-        results = await server.execute_sql(
-            "SELECT id, name FROM regions ORDER BY name",
-            "geography"
-        )
+        results = await server.execute_sql("SELECT id, name FROM regions ORDER BY name", "geography")
         print(f"   ✓ Found {len(results)} continents:")
         for row in results:
             print(f"      - {row['name']}")
@@ -85,11 +83,11 @@ async def main():
             LIMIT 10
             """,
             "geography",
-            parameters=["Europe"]
+            parameters=["Europe"],
         )
-        print(f"   ✓ Top 10 European countries by population:")
+        print("   ✓ Top 10 European countries by population:")
         for row in results:
-            pop = f"{row['population']:,}" if row['population'] else "N/A"
+            pop = f"{row['population']:,}" if row["population"] else "N/A"
             print(f"      - {row['country']} (capital: {row['capital']}, pop: {pop})")
 
         # Test execute_sql - Cities search
@@ -104,7 +102,7 @@ async def main():
             ORDER BY co.name
             """,
             "geography",
-            parameters=["Paris"]
+            parameters=["Paris"],
         )
         print(f"   ✓ Found {len(results)} cities named 'Paris':")
         for row in results:
@@ -121,27 +119,27 @@ async def main():
             ORDER BY ci.population DESC
             LIMIT 10
             """,
-            "geography"
+            "geography",
         )
-        print(f"   ✓ Top 10 largest cities:")
+        print("   ✓ Top 10 largest cities:")
         for row in results:
-            pop = f"{row['population']:,}" if row['population'] else "N/A"
+            pop = f"{row['population']:,}" if row["population"] else "N/A"
             print(f"      - {row['city']}, {row['country']} (pop: {pop})")
 
         # Test get_table_schema_with_relations
         print("\n9. Testing get_table_schema_with_relations('geography', 'cities')...")
         schema = await server.get_table_schema_with_relations("geography", "cities")
-        fk_cols = [col for col, info in schema['columns'].items() if info.get('foreign_key')]
-        print(f"   ✓ Cities table foreign keys:")
+        fk_cols = [col for col, info in schema["columns"].items() if info.get("foreign_key")]
+        print("   ✓ Cities table foreign keys:")
         for col in fk_cols:
-            fk = schema['columns'][col]['foreign_key']
+            fk = schema["columns"][col]["foreign_key"]
             print(f"      - {col} → {fk['referenced_table']}.{fk['referenced_column']}")
 
         # Summary statistics
         print("\n10. Database summary statistics...")
-        for table in ['regions', 'subregions', 'countries', 'states', 'cities']:
+        for table in ["regions", "subregions", "countries", "states", "cities"]:
             results = await server.execute_sql(f"SELECT COUNT(*) as cnt FROM {table}", "geography")
-            count = results[0]['cnt'] if results else 0
+            count = results[0]["cnt"] if results else 0
             print(f"    - {table}: {count:,} records")
 
         print("\n" + "=" * 70)

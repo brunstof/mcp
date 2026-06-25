@@ -1,9 +1,11 @@
-import unittest
-from unittest.mock import patch, MagicMock
 import asyncio
+import unittest
+from unittest.mock import patch
+
 import numpy as np
 
 from embeddings import EmbeddingService
+
 
 class TestEmbeddingServiceHuggingFace(unittest.TestCase):
     @patch("embeddings.EMBEDDING_PROVIDER", "huggingface")
@@ -18,6 +20,7 @@ class TestEmbeddingServiceHuggingFace(unittest.TestCase):
         self.assertTrue(isinstance(result, np.ndarray) or isinstance(result, list))
         self.assertEqual(len(result), 1024)
 
+
 class TestEmbeddingServiceOpenAI(unittest.TestCase):
     @patch("embeddings.EMBEDDING_PROVIDER", "openai")
     def test_openai_init_and_embed(self):
@@ -30,6 +33,7 @@ class TestEmbeddingServiceOpenAI(unittest.TestCase):
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 1536)
 
+
 class TestEmbeddingServiceGemini(unittest.TestCase):
     @patch("embeddings.EMBEDDING_PROVIDER", "gemini")
     def test_gemini_init_and_embed(self):
@@ -41,6 +45,7 @@ class TestEmbeddingServiceGemini(unittest.TestCase):
         result = asyncio.run(service.embed("hello world"))
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 768)
+
 
 if __name__ == "__main__":
     unittest.main()

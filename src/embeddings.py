@@ -1,34 +1,28 @@
-import logging
-import sys
-import os
 import asyncio
-from typing import List, Optional, Dict, Any, Union, Awaitable
+import os
+import sys
+from typing import Any
+
 import numpy as np
 
 # Maximum number of HuggingFace models to keep in memory simultaneously
 _HF_MODEL_CACHE_MAX_SIZE = 5
 
 # Import configuration variables and the logger instance
-from config import (
-    EMBEDDING_PROVIDER,
-    OPENAI_API_KEY,
-    GEMINI_API_KEY,
-    HF_MODEL,
-    logger
-)
+from config import EMBEDDING_PROVIDER, GEMINI_API_KEY, HF_MODEL, OPENAI_API_KEY, logger
 
 # Import specific client libraries
 try:
     from openai import AsyncOpenAI, OpenAIError
 except ImportError:
     logger.warning("OpenAI library not installed. OpenAI provider will not be available.")
-    AsyncOpenAI = None # type: ignore
-    OpenAIError = Exception # type: ignore # Generic exception if library missing
+    AsyncOpenAI = None  # type: ignore
+    OpenAIError = Exception  # type: ignore # Generic exception if library missing
 
 # Ensure site-packages is in path for google-genai
 site_packages_paths = [
-    os.path.join(os.path.dirname(sys.executable), 'Lib', 'site-packages'),
-    os.path.join(os.path.dirname(os.path.dirname(sys.executable)), 'Lib', 'site-packages')
+    os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages"),
+    os.path.join(os.path.dirname(os.path.dirname(sys.executable)), "Lib", "site-packages"),
 ]
 for path in site_packages_paths:
     if path not in sys.path and os.path.exists(path):
@@ -39,51 +33,48 @@ for path in site_packages_paths:
 try:
     import google.genai as genai
     from google.api_core import exceptions as GoogleAPICoreExceptions
+
     logger.info("Successfully imported google.genai")
 except ImportError as e:
-    logger.warning(f"Google Generative AI SDK ('google-genai' package) not installed. Gemini provider will not be available. Error: {e}")
+    logger.warning(
+        f"Google Generative AI SDK ('google-genai' package) not installed. Gemini provider will not be available. Error: {e}"
+    )
     logger.info(f"Current sys.path: {sys.path}")
-    genai = None # type: ignore
-    GoogleAPICoreExceptions = None # type: ignore
+    genai = None  # type: ignore
+    GoogleAPICoreExceptions = None  # type: ignore
 
 # --- Model Definitions ---
 # Define allowed models and defaults for each provider
 # OpenAI Embedding Models
-ALLOWED_OPENAI_MODELS: List[str] = ["text-embedding-3-small", "text-embedding-3-large"]
+ALLOWED_OPENAI_MODELS: list[str] = ["text-embedding-3-small", "text-embedding-3-large"]
 DEFAULT_OPENAI_MODEL: str = "text-embedding-3-small"
 # Mapping of model names to their embedding dimensions (update as needed)
-OPENAI_MODEL_DIMENSIONS = {
-    "text-embedding-3-small": 1536,
-    "text-embedding-3-large": 3072
-}
+OPENAI_MODEL_DIMENSIONS = {"text-embedding-3-small": 1536, "text-embedding-3-large": 3072}
 # Gemini Embedding Models
-ALLOWED_GEMINI_MODELS: List[str] = ["text-embedding-004"]
+ALLOWED_GEMINI_MODELS: list[str] = ["text-embedding-004"]
 DEFAULT_GEMINI_MODEL: str = "text-embedding-004"
-GEMINI_MODEL_DIMENSIONS = {
-    "text-embedding-004": 768
-}
+GEMINI_MODEL_DIMENSIONS = {"text-embedding-004": 768}
 # Open Embedding Models - Huggingface
-ALLOWED_HF_MODELS: List[str] = ["intfloat/multilingual-e5-large-instruct", "BAAI/bge-m3"]
+ALLOWED_HF_MODELS: list[str] = ["intfloat/multilingual-e5-large-instruct", "BAAI/bge-m3"]
 DEFAULT_HF_MODEL: str = "BAAI/bge-m3"
-HF_MODEL_DIMENSIONS = {
-    "intfloat/multilingual-e5-large-instruct": 1024,
-    "BAAI/bge-m3": 1024
-}
+HF_MODEL_DIMENSIONS = {"intfloat/multilingual-e5-large-instruct": 1024, "BAAI/bge-m3": 1024}
+
 
 class EmbeddingService:
     """
     Provides an interface to generate text embeddings using a configured provider
     (OpenAI or Google Gemini) and allows model selection at runtime.
     """
+
     def __init__(self):
         """
         Initializes the embedding service based on configuration.
         Sets up the appropriate asynchronous client for OpenAI or configures Gemini.
         """
         self.provider = EMBEDDING_PROVIDER
-        self.openai_client: Optional[AsyncOpenAI] = None
+        self.openai_client: AsyncOpenAI | None = None
         self.gemini_client = None
-        self.allowed_models: List[str] = []
+        self.allowed_models: list[str] = []
         self.default_model: str = ""
 
         logger.info(f"Initializing EmbeddingService with provider: {self.provider}")
@@ -99,10 +90,12 @@ class EmbeddingService:
                 self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
                 self.allowed_models = ALLOWED_OPENAI_MODELS
                 self.default_model = DEFAULT_OPENAI_MODEL
-                logger.info(f"OpenAI client initialized. Default model: {self.default_model}. Allowed: {self.allowed_models}")
+                logger.info(
+                    f"OpenAI client initialized. Default model: {self.default_model}. Allowed: {self.allowed_models}"
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}", exc_info=True)
-                raise RuntimeError(f"OpenAI client initialization failed: {e}")
+                raise RuntimeError(f"OpenAI client initialization failed: {e}") from e
         elif self.provider == "gemini":
             if not GEMINI_API_KEY:
                 logger.error("Gemini API key is missing.")
@@ -110,16 +103,21 @@ class EmbeddingService:
             try:
                 import google.genai as genai
                 from google.genai import types as genai_types
-                self.gemini_client = genai.Client(api_key=GEMINI_API_KEY) # Keeping self.gemini_client = genai based on previous structure for embed_content
+
+                self.gemini_client = genai.Client(
+                    api_key=GEMINI_API_KEY
+                )  # Keeping self.gemini_client = genai based on previous structure for embed_content
                 self.gemini_config = genai_types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
                 self.allowed_models = ALLOWED_GEMINI_MODELS
                 self.default_model = DEFAULT_GEMINI_MODEL
-                logger.info(f"Gemini client initialized. Default model: {self.default_model}. Allowed: {self.allowed_models}")
+                logger.info(
+                    f"Gemini client initialized. Default model: {self.default_model}. Allowed: {self.allowed_models}"
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
-                raise RuntimeError(f"Gemini client initialization failed: {e}")
+                raise RuntimeError(f"Gemini client initialization failed: {e}") from e
         elif self.provider == "huggingface":
-            if not HF_MODEL: # From config.py
+            if not HF_MODEL:  # From config.py
                 logger.error("EMBEDDING_PROVIDER is 'huggingface' but HF_MODEL is missing in config.")
                 raise ValueError("HuggingFace model (HF_MODEL) is required in config for the HuggingFace provider.")
             try:
@@ -127,10 +125,10 @@ class EmbeddingService:
 
                 # The primary model for this service instance will be HF_MODEL from config
                 self.default_model = HF_MODEL
-                self.allowed_models = ALLOWED_HF_MODELS # These are other models that can be specified via embed()
+                self.allowed_models = ALLOWED_HF_MODELS  # These are other models that can be specified via embed()
 
                 # Model cache for dynamically loaded HuggingFace models
-                self._hf_model_cache: Dict[str, Any] = {}
+                self._hf_model_cache: dict[str, Any] = {}
 
                 # Pre-load the default model from config
                 logger.info(f"Initializing SentenceTransformer with configured HF_MODEL: {self.default_model}")
@@ -138,21 +136,29 @@ class EmbeddingService:
                 # Cache the default model as well
                 self._hf_model_cache[self.default_model] = self.huggingface_client
 
-                logger.info(f"HuggingFace provider initialized. Default model (from config.HF_MODEL): '{self.default_model}'. Client loaded. Allowed models for override: {self.allowed_models}")
+                logger.info(
+                    f"HuggingFace provider initialized. Default model (from config.HF_MODEL): '{self.default_model}'. Client loaded. Allowed models for override: {self.allowed_models}"
+                )
 
             except ImportError:
-                logger.error("'sentence-transformers' library not installed. HuggingFace provider will not be available.")
-                self.huggingface_client = None # Ensure it's None if import fails
-                raise ImportError("'sentence-transformers' library not found. Please install it.")
+                logger.error(
+                    "'sentence-transformers' library not installed. HuggingFace provider will not be available."
+                )
+                self.huggingface_client = None  # Ensure it's None if import fails
+                raise ImportError("'sentence-transformers' library not found. Please install it.") from None
             except Exception as e:
-                logger.error(f"Failed to initialize HuggingFace SentenceTransformer with model '{HF_MODEL}': {e}", exc_info=True)
-                self.huggingface_client = None # Ensure it's None if init fails
-                raise RuntimeError(f"HuggingFace SentenceTransformer (model: {HF_MODEL}) initialization failed: {e}")
+                logger.error(
+                    f"Failed to initialize HuggingFace SentenceTransformer with model '{HF_MODEL}': {e}", exc_info=True
+                )
+                self.huggingface_client = None  # Ensure it's None if init fails
+                raise RuntimeError(
+                    f"HuggingFace SentenceTransformer (model: {HF_MODEL}) initialization failed: {e}"
+                ) from e
         else:
             logger.error(f"Unsupported embedding provider configured: {self.provider}")
             raise ValueError(f"Unsupported embedding provider: {self.provider}")
 
-    def get_allowed_models(self) -> List[str]:
+    def get_allowed_models(self) -> list[str]:
         """Returns the list of allowed model names for the current provider."""
         return self.allowed_models
 
@@ -160,7 +166,7 @@ class EmbeddingService:
         """Returns the default model name for the current provider."""
         return self.default_model
 
-    async def get_embedding_dimension(self, model_name: Optional[str] = None) -> int:
+    async def get_embedding_dimension(self, model_name: str | None = None) -> int:
         """
         Returns the embedding vector dimension for the given model (or default model if not specified).
         Raises ValueError if the model is invalid or dimension unknown.
@@ -169,51 +175,67 @@ class EmbeddingService:
         if self.provider == "openai":
             model = model_name or self.default_model
             if model not in OPENAI_MODEL_DIMENSIONS:
-                logger.error(f"Unknown dimension for OpenAI model '{model}'. Known: {list(OPENAI_MODEL_DIMENSIONS.keys())}")
+                logger.error(
+                    f"Unknown dimension for OpenAI model '{model}'. Known: {list(OPENAI_MODEL_DIMENSIONS.keys())}"
+                )
                 raise ValueError(f"Unknown dimension for OpenAI model '{model}'.")
             return OPENAI_MODEL_DIMENSIONS[model]
         elif self.provider == "gemini":
             model = model_name or self.default_model
             if model not in GEMINI_MODEL_DIMENSIONS:
-                logger.error(f"Unknown dimension for Gemini model '{model}'. Known: {list(GEMINI_MODEL_DIMENSIONS.keys())}")
+                logger.error(
+                    f"Unknown dimension for Gemini model '{model}'. Known: {list(GEMINI_MODEL_DIMENSIONS.keys())}"
+                )
                 raise ValueError(f"Unknown dimension for Gemini model '{model}'.")
             return GEMINI_MODEL_DIMENSIONS[model]
         elif self.provider == "huggingface":
-            model_to_check = model_name or self.default_model # self.default_model is config.HF_MODEL
+            model_to_check = model_name or self.default_model  # self.default_model is config.HF_MODEL
 
             # If it's the default (pre-loaded) model, get dimension from the client
             if model_to_check == self.default_model and self.huggingface_client:
                 try:
                     dimension = self.huggingface_client.get_sentence_embedding_dimension()
-                    if dimension is None: # Fallback for some models
-                        logger.warning(f"get_sentence_embedding_dimension() returned None for '{model_to_check}'. Attempting dummy embed to get dimension.")
+                    if dimension is None:  # Fallback for some models
+                        logger.warning(
+                            f"get_sentence_embedding_dimension() returned None for '{model_to_check}'. Attempting dummy embed to get dimension."
+                        )
                         # Note: encode() might return a list of embeddings if input is a list.
                         # We need to ensure we get a single embedding's dimension.
-                        dummy_embeddings_np = self.huggingface_client.encode("test") # encode a single string
+                        dummy_embeddings_np = self.huggingface_client.encode("test")  # encode a single string
                         # Result of encode for single string might be 1D array or 2D array with 1 row
                         if isinstance(dummy_embeddings_np, np.ndarray) and dummy_embeddings_np.ndim == 1:
                             dimension = len(dummy_embeddings_np)
-                        elif isinstance(dummy_embeddings_np, np.ndarray) and dummy_embeddings_np.ndim == 2 and dummy_embeddings_np.shape[0] == 1:
+                        elif (
+                            isinstance(dummy_embeddings_np, np.ndarray)
+                            and dummy_embeddings_np.ndim == 2
+                            and dummy_embeddings_np.shape[0] == 1
+                        ):
                             dimension = dummy_embeddings_np.shape[1]
                         else:
                             raise ValueError("Unexpected dummy embedding format for dimension check.")
                     logger.info(f"Dimension for default HF model '{model_to_check}' from client: {dimension}")
                     return dimension
                 except Exception as e:
-                    logger.error(f"Error getting dimension from loaded HF client for '{model_to_check}': {e}. Falling back to HF_MODEL_DIMENSIONS.")
-            
+                    logger.error(
+                        f"Error getting dimension from loaded HF client for '{model_to_check}': {e}. Falling back to HF_MODEL_DIMENSIONS."
+                    )
+
             # Fallback or for other models specified by model_name, check the predefined dictionary
             if model_to_check in HF_MODEL_DIMENSIONS:
                 logger.debug(f"Using HF_MODEL_DIMENSIONS for HuggingFace model '{model_to_check}'.")
                 return HF_MODEL_DIMENSIONS[model_to_check]
             else:
-                logger.error(f"Unknown dimension for HuggingFace model '{model_to_check}'. Not in HF_MODEL_DIMENSIONS and not derivable from a non-default model without loading it.")
-                raise ValueError(f"Unknown dimension for HuggingFace model '{model_to_check}'. Please ensure it's in HF_MODEL_DIMENSIONS if not the default model.")
+                logger.error(
+                    f"Unknown dimension for HuggingFace model '{model_to_check}'. Not in HF_MODEL_DIMENSIONS and not derivable from a non-default model without loading it."
+                )
+                raise ValueError(
+                    f"Unknown dimension for HuggingFace model '{model_to_check}'. Please ensure it's in HF_MODEL_DIMENSIONS if not the default model."
+                )
         else:
             logger.error(f"get_embedding_dimension not implemented for provider: {self.provider}")
             raise NotImplementedError(f"Embedding dimension lookup not implemented for provider: {self.provider}")
 
-    async def embed(self, text: Union[str, List[str]], model_name: Optional[str] = None) -> Union[List[float], List[List[float]]]:
+    async def embed(self, text: str | list[str], model_name: str | None = None) -> list[float] | list[list[float]]:
         """
         Asynchronously generates embedding(s) for a single document or a list of documents using the configured provider.
 
@@ -253,27 +275,32 @@ class EmbeddingService:
         target_model = model_name
         if target_model:
             if target_model not in self.allowed_models:
-                logger.error(f"Invalid model '{target_model}' requested for provider '{self.provider}'. Allowed: {self.allowed_models}")
-                raise ValueError(f"Model '{target_model}' is not allowed for the '{self.provider}' provider. Choose from: {self.allowed_models}")
+                logger.error(
+                    f"Invalid model '{target_model}' requested for provider '{self.provider}'. Allowed: {self.allowed_models}"
+                )
+                raise ValueError(
+                    f"Model '{target_model}' is not allowed for the '{self.provider}' provider. Choose from: {self.allowed_models}"
+                )
         else:
             target_model = self.default_model
             logger.debug(f"No model specified, using default for {self.provider}: {target_model}")
 
-        logger.debug(f"Requesting embedding using model '{target_model}' for {len(texts)} text(s). Example (first 50 chars): '{texts[0][:50]}...'")
+        logger.debug(
+            f"Requesting embedding using model '{target_model}' for {len(texts)} text(s). Example (first 50 chars): '{texts[0][:50]}...'"
+        )
 
         try:
             if self.provider == "openai":
                 if not self.openai_client:
                     logger.critical("OpenAI client not initialized during embed call.")
                     raise RuntimeError("OpenAI client not initialized.")
-                
-                response = await self.openai_client.embeddings.create(
-                    input=texts,
-                    model=target_model
-                )
+
+                response = await self.openai_client.embeddings.create(input=texts, model=target_model)
                 if response.data and len(response.data) == len(texts):
                     embeddings = [d.embedding for d in response.data]
-                    logger.debug(f"OpenAI embedding(s) received. Count: {len(embeddings)}, Dimension: {len(embeddings[0]) if embeddings else 'N/A'}")
+                    logger.debug(
+                        f"OpenAI embedding(s) received. Count: {len(embeddings)}, Dimension: {len(embeddings[0]) if embeddings else 'N/A'}"
+                    )
                     return embeddings[0] if single_input else embeddings
                 else:
                     logger.error("OpenAI embedding API response did not contain expected data or count mismatch.")
@@ -282,35 +309,43 @@ class EmbeddingService:
                 if not self.gemini_client:
                     logger.critical("Gemini client not initialized during embed call.")
                     raise RuntimeError("Gemini client not initialized.")
-                
+
                 # Since Gemini doesn't have an async API yet, we'll use asyncio.to_thread
                 embeddings = []
                 for t in texts:
                     embedding_result = await asyncio.to_thread(
                         self.gemini_client.models.embed_content,
-                        model=f'models/{target_model}', # Gemini models often need 'models/' prefix
+                        model=f"models/{target_model}",  # Gemini models often need 'models/' prefix
                         contents=t,
-                        config=self.gemini_config
+                        config=self.gemini_config,
                     )
                     # For the newer Gemini API, the embedding should be directly accessible
                     # through the embedding attribute of the response
-                    if hasattr(embedding_result, 'embedding') and isinstance(embedding_result.embedding, list):
+                    if hasattr(embedding_result, "embedding") and isinstance(embedding_result.embedding, list):
                         embeddings.append(embedding_result.embedding)
                     # Fallback for other response structures
-                    elif isinstance(embedding_result, dict) and 'embedding' in embedding_result:
-                        embeddings.append(embedding_result['embedding'])
-                    elif hasattr(embedding_result, 'embeddings') and embedding_result.embeddings and hasattr(embedding_result.embeddings[0], 'values'):
+                    elif isinstance(embedding_result, dict) and "embedding" in embedding_result:
+                        embeddings.append(embedding_result["embedding"])
+                    elif (
+                        hasattr(embedding_result, "embeddings")
+                        and embedding_result.embeddings
+                        and hasattr(embedding_result.embeddings[0], "values")
+                    ):
                         embeddings.append(embedding_result.embeddings[0].values)
                     else:
                         logger.error(f"Unexpected Gemini embedding result structure: {type(embedding_result).__name__}")
-                        logger.error(f"Available attributes: {dir(embedding_result) if hasattr(embedding_result, '__dir__') else 'Not inspectable'}")
+                        logger.error(
+                            f"Available attributes: {dir(embedding_result) if hasattr(embedding_result, '__dir__') else 'Not inspectable'}"
+                        )
                         raise RuntimeError("Failed to parse Gemini embedding result.")
-            
-                logger.debug(f"Gemini embedding(s) received. Count: {len(embeddings)}, Dimension: {len(embeddings[0]) if embeddings else 'N/A'}")
-                
+
+                logger.debug(
+                    f"Gemini embedding(s) received. Count: {len(embeddings)}, Dimension: {len(embeddings[0]) if embeddings else 'N/A'}"
+                )
+
                 return embeddings[0] if single_input else embeddings
             elif self.provider == "huggingface":
-                if not self.huggingface_client: # This client is now pre-loaded with config.HF_MODEL
+                if not self.huggingface_client:  # This client is now pre-loaded with config.HF_MODEL
                     logger.critical("HuggingFace client (SentenceTransformer) not properly initialized.")
                     raise RuntimeError("HuggingFace client (SentenceTransformer) not initialized. Check service setup.")
 
@@ -326,9 +361,12 @@ class EmbeddingService:
                     embeddings_np = model_instance.encode(texts)
                 else:
                     # A different model was requested via model_name, and it's valid (already checked in pre-amble of embed)
-                    logger.info(f"Loading and caching HuggingFace model '{target_model}' (different from default '{self.default_model}').")
+                    logger.info(
+                        f"Loading and caching HuggingFace model '{target_model}' (different from default '{self.default_model}')."
+                    )
                     try:
                         from sentence_transformers import SentenceTransformer
+
                         model_instance = SentenceTransformer(target_model)
                         # Evict oldest entry if cache is at capacity
                         if len(self._hf_model_cache) >= _HF_MODEL_CACHE_MAX_SIZE:
@@ -340,10 +378,10 @@ class EmbeddingService:
                         logger.info(f"HuggingFace model '{target_model}' loaded and cached successfully.")
                     except Exception as e:
                         logger.error(f"Failed to load HuggingFace model '{target_model}': {e}", exc_info=True)
-                        raise RuntimeError(f"Error with HuggingFace model '{target_model}': {e}")
-            
+                        raise RuntimeError(f"Error with HuggingFace model '{target_model}': {e}") from e
+
                 # Convert numpy array to list of lists of floats (or list of floats)
-                embeddings_list: List[List[float]]
+                embeddings_list: list[list[float]]
                 if isinstance(embeddings_np, np.ndarray):
                     raw_list = embeddings_np.tolist()
                     # Ensure we have a list of lists for batch processing
@@ -352,11 +390,13 @@ class EmbeddingService:
                         embeddings_list = [raw_list]
                     else:
                         embeddings_list = raw_list
-                else: # Should ideally not happen with sentence-transformers if encode ran
+                else:  # Should ideally not happen with sentence-transformers if encode ran
                     logger.warning("HuggingFace encode did not return a numpy array as expected.")
                     raise RuntimeError("HuggingFace encoding failed to return valid embeddings.")
 
-                logger.debug(f"HuggingFace embedding(s) with model '{effective_model_name}' received. Count: {len(embeddings_list)}, Dimension: {len(embeddings_list[0]) if embeddings_list else 'N/A'}")
+                logger.debug(
+                    f"HuggingFace embedding(s) with model '{effective_model_name}' received. Count: {len(embeddings_list)}, Dimension: {len(embeddings_list[0]) if embeddings_list else 'N/A'}"
+                )
 
                 # Adjust return for single_input
                 if single_input:
@@ -366,13 +406,15 @@ class EmbeddingService:
             else:
                 logger.error(f"Embed called with unsupported provider: {self.provider}")
                 raise RuntimeError(f"Unsupported embedding provider: {self.provider}")
-            
+
         except OpenAIError as e:
             logger.error(f"OpenAI API error during embedding: {e}", exc_info=True)
             raise RuntimeError(f"OpenAI API error: {e}") from e
-        except GoogleAPICoreExceptions.GoogleAPIError as e: # type: ignore
+        except GoogleAPICoreExceptions.GoogleAPIError as e:  # type: ignore
             logger.error(f"Gemini API error during embedding: {e}", exc_info=True)
             raise RuntimeError(f"Gemini API error: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error during embedding with {self.provider} model {target_model}: {e}", exc_info=True)
-            raise RuntimeError(f"Embedding generation failed: {e}")
+            logger.error(
+                f"Unexpected error during embedding with {self.provider} model {target_model}: {e}", exc_info=True
+            )
+            raise RuntimeError(f"Embedding generation failed: {e}") from e

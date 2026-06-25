@@ -1,33 +1,45 @@
 # server.py
 
 # Import configuration settings
-from config import (
-    DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_CHARSET,
-    DB_HOSTS, DB_PORTS, DB_USERS, DB_PASSWORDS, DB_NAMES, DB_CHARSETS,
-    MCP_READ_ONLY, MCP_MAX_POOL_SIZE, EMBEDDING_PROVIDER,
-    ALLOWED_ORIGINS, ALLOWED_HOSTS,
-    DB_CONNECT_TIMEOUT,
-    EMBEDDING_MAX_CONCURRENT, MCP_MAX_RESULTS,
-    logger
-)
-
-import asyncio
 import argparse
+import asyncio
 import json
 import re
 import time
-from typing import List, Dict, Any, Optional
 from functools import partial
+from typing import Any
 
-import asyncmy
 import anyio
-from fastmcp import FastMCP, Context
-
+import asyncmy
+from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+
+from config import (
+    ALLOWED_HOSTS,
+    ALLOWED_ORIGINS,
+    DB_CHARSET,
+    DB_CHARSETS,
+    DB_CONNECT_TIMEOUT,
+    DB_HOST,
+    DB_HOSTS,
+    DB_NAME,
+    DB_NAMES,
+    DB_PASSWORD,
+    DB_PASSWORDS,
+    DB_PORT,
+    DB_PORTS,
+    DB_USER,
+    DB_USERS,
+    EMBEDDING_MAX_CONCURRENT,
+    EMBEDDING_PROVIDER,
+    MCP_MAX_POOL_SIZE,
+    MCP_MAX_RESULTS,
+    MCP_READ_ONLY,
+    logger,
+)
 
 # Import EmbeddingService for vector store creation
 from embeddings import EmbeddingService
@@ -40,7 +52,8 @@ if EMBEDDING_PROVIDER is not None:
 from asyncmy.errors import Error as AsyncMyError
 
 # Semaphore for rate limiting embedding API calls
-_embedding_semaphore: Optional[asyncio.Semaphore] = None
+_embedding_semaphore: asyncio.Semaphore | None = None
+
 
 # --- MariaDB MCP Server Class ---
 class MariaDBServer:
@@ -48,13 +61,14 @@ class MariaDBServer:
     MCP Server exposing tools to interact with a MariaDB database.
     Manages the database connection pool.
     """
+
     def __init__(self, server_name="MariaDB_Server"):
         self.mcp = FastMCP(server_name)
-        self.pool: Optional[asyncmy.Pool] = None
-        self.pools: Dict[str, asyncmy.Pool] = {}  # Multiple pools by connection name
+        self.pool: asyncmy.Pool | None = None
+        self.pools: dict[str, asyncmy.Pool] = {}  # Multiple pools by connection name
         self.autocommit = not MCP_READ_ONLY
         self.is_read_only = MCP_READ_ONLY
-        self._current_db_cache: Dict[int, str] = {}  # Cache database context per connection
+        self._current_db_cache: dict[int, str] = {}  # Cache database context per connection
         # Metrics tracking
         self._metrics = {
             "queries_executed": 0,
@@ -68,10 +82,16 @@ class MariaDBServer:
         if self.is_read_only:
             logger.warning("Server running in READ-ONLY mode. Write operations are disabled.")
 
-    async def create_vector_store(self, database_name: str, vector_store_name: str, model_name: Optional[str] = None, distance_function: Optional[str] = None) -> dict:
+    async def create_vector_store(
+        self,
+        database_name: str,
+        vector_store_name: str,
+        model_name: str | None = None,
+        distance_function: str | None = None,
+    ) -> dict:
         """
         This tool creates a table which stores embeddings.
-        
+
         Creates a new vector store (table) with a predefined schema if it doesn't already exist.
         It first checks if the database exists, creating it if necessary.
         Then, it checks if the table exists; if so, it reports that.
@@ -85,7 +105,9 @@ class MariaDBServer:
         - model_name (str, optional): The embedding model to use (defaults to service default).
         - distance_function (str, optional): 'euclidean' or 'cosine'. Defaults to 'cosine'.
         """
-        return await self.create_vector_store_tool(database_name, vector_store_name, embedding_service, model_name, distance_function)
+        return await self.create_vector_store_tool(
+            database_name, vector_store_name, embedding_service, model_name, distance_function
+        )
 
     async def initialize_pool(self):
         """Initializes the asyncmy connection pool within the running event loop."""
@@ -125,9 +147,13 @@ class MariaDBServer:
 
             if DB_CHARSET:
                 pool_params["charset"] = DB_CHARSET
-                logger.info(f"Creating connection pool for {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME} (max size: {MCP_MAX_POOL_SIZE}, charset: {DB_CHARSET})")
+                logger.info(
+                    f"Creating connection pool for {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME} (max size: {MCP_MAX_POOL_SIZE}, charset: {DB_CHARSET})"
+                )
             else:
-                logger.info(f"Creating connection pool for {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME} (max size: {MCP_MAX_POOL_SIZE})")
+                logger.info(
+                    f"Creating connection pool for {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME} (max size: {MCP_MAX_POOL_SIZE})"
+                )
 
             self.pool = await asyncmy.create_pool(**pool_params)
 
@@ -155,7 +181,7 @@ class MariaDBServer:
             logger.debug("Pool warmup successful - connection validated.")
         except Exception as e:
             logger.warning(f"Pool warmup query failed: {e}")
-    
+
     async def initialize_multiple_pools(self):
         """Initialize multiple database connection pools."""
         global _embedding_semaphore
@@ -232,7 +258,9 @@ class MariaDBServer:
             finally:
                 self.pool = None
 
-    async def _execute_query(self, sql: str, params: Optional[tuple] = None, database: Optional[str] = None, limit_results: bool = True) -> List[Dict[str, Any]]:
+    async def _execute_query(
+        self, sql: str, params: tuple | None = None, database: str | None = None, limit_results: bool = True
+    ) -> list[dict[str, Any]]:
         """Helper function to execute SELECT queries using the pool.
 
         Args:
@@ -252,13 +280,13 @@ class MariaDBServer:
             logger.error("Connection pool is not initialized.")
             raise RuntimeError("Database connection pool not available.")
 
-        allowed_prefixes = ('SELECT', 'SHOW', 'DESC', 'DESCRIBE', 'USE')
+        allowed_prefixes = ("SELECT", "SHOW", "DESC", "DESCRIBE", "USE")
 
         # Strip SQL comments from query
         # Remove single-line comments (-- comment)
-        sql_no_comments = re.sub(r'--.*?$', '', sql, flags=re.MULTILINE)
+        sql_no_comments = re.sub(r"--.*?$", "", sql, flags=re.MULTILINE)
         # Remove multi-line comments (/* comment */)
-        sql_no_comments = re.sub(r'/\*.*?\*/', '', sql_no_comments, flags=re.DOTALL)
+        sql_no_comments = re.sub(r"/\*.*?\*/", "", sql_no_comments, flags=re.DOTALL)
         sql_no_comments = sql_no_comments.strip()
 
         query_upper = sql_no_comments.upper()
@@ -306,37 +334,36 @@ class MariaDBServer:
             raise e
         except Exception as e:
             self._metrics["query_errors"] += 1
-            if isinstance(e, RuntimeError) and 'Event loop is closed' in str(e):
+            if isinstance(e, RuntimeError) and "Event loop is closed" in str(e):
                 logger.critical("Detected closed event loop during query execution!", exc_info=True)
                 raise RuntimeError("Event loop closed unexpectedly during query.") from e
             conn_state = f"Connection: {'acquired' if conn else 'not acquired'}"
             logger.error(f"Unexpected error during query execution ({conn_state}): {e}", exc_info=True)
             raise RuntimeError(f"An unexpected error occurred: {e}") from e
-            
+
     async def _database_exists(self, database_name: str) -> bool:
         """Checks if a database exists."""
         if not database_name or not database_name.isidentifier():
             logger.warning(f"_database_exists called with invalid database_name: {database_name}")
-            return False 
+            return False
 
         sql = "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = %s"
         try:
-            results = await self._execute_query(sql, params=(database_name,), database='information_schema')
+            results = await self._execute_query(sql, params=(database_name,), database="information_schema")
             return len(results) > 0
         except Exception as e:
             logger.error(f"Error checking if database '{database_name}' exists: {e}", exc_info=True)
             return False
-        
+
     async def _table_exists(self, database_name: str, table_name: str) -> bool:
         """Checks if a table exists in the given database."""
-        if not database_name or not database_name.isidentifier() or \
-           not table_name or not table_name.isidentifier():
+        if not database_name or not database_name.isidentifier() or not table_name or not table_name.isidentifier():
             logger.warning(f"_table_exists called with invalid names: db='{database_name}', table='{table_name}'")
             return False
 
         sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s"
         try:
-            results = await self._execute_query(sql, params=(database_name, table_name), database='information_schema')
+            results = await self._execute_query(sql, params=(database_name, table_name), database="information_schema")
             return len(results) > 0
         except Exception as e:
             logger.error(f"Error checking if table '{database_name}.{table_name}' exists: {e}", exc_info=True)
@@ -357,8 +384,7 @@ class MariaDBServer:
         """
         logger.debug(f"Checking if '{database_name}.{table_name}' is a vector store.")
 
-        if not database_name or not database_name.isidentifier() or \
-           not table_name or not table_name.isidentifier():
+        if not database_name or not database_name.isidentifier() or not table_name or not table_name.isidentifier():
             logger.warning(f"_is_vector_store called with invalid names: db='{database_name}', table='{table_name}'")
             return False
 
@@ -376,8 +402,10 @@ class MariaDBServer:
           AND UPPER(T1.DATA_TYPE) = 'VECTOR';
         """
         try:
-            results = await self._execute_query(sql_query, params=(database_name, table_name), database='information_schema')
-            if results and results[0].get('vector_store_count', 0) > 0:
+            results = await self._execute_query(
+                sql_query, params=(database_name, table_name), database="information_schema"
+            )
+            if results and results[0].get("vector_store_count", 0) > 0:
                 logger.debug(f"Confirmation: '{database_name}.{table_name}' is a vector store.")
                 return True
             else:
@@ -385,25 +413,24 @@ class MariaDBServer:
                 return False
         except Exception as e:
             logger.error(f"Error checking if '{database_name}.{table_name}' is a vector store: {e}", exc_info=True)
-            return False # Treat errors as "not a vector store" for safety in deletion context
+            return False  # Treat errors as "not a vector store" for safety in deletion context
 
-    
     # --- MCP Tool Definitions ---
 
-    async def list_databases(self) -> List[str]:
+    async def list_databases(self) -> list[str]:
         """Lists all accessible databases on the connected MariaDB server."""
         logger.info("TOOL START: list_databases called.")
         sql = "SHOW DATABASES"
         try:
             results = await self._execute_query(sql)
-            db_list = [row['Database'] for row in results if 'Database' in row]
+            db_list = [row["Database"] for row in results if "Database" in row]
             logger.info(f"TOOL END: list_databases completed. Databases found: {len(db_list)}.")
             return db_list
         except Exception as e:
             logger.error(f"TOOL ERROR: list_databases failed: {e}", exc_info=True)
             raise
 
-    async def list_tables(self, database_name: str) -> List[str]:
+    async def list_tables(self, database_name: str) -> list[str]:
         """Lists all tables within the specified database."""
         logger.info(f"TOOL START: list_tables called. database_name={database_name}")
         if not database_name or not database_name.isidentifier():
@@ -419,7 +446,7 @@ class MariaDBServer:
             logger.error(f"TOOL ERROR: list_tables failed for database_name={database_name}: {e}", exc_info=True)
             raise
 
-    async def get_table_schema(self, database_name: str, table_name: str) -> Dict[str, Any]:
+    async def get_table_schema(self, database_name: str, table_name: str) -> dict[str, Any]:
         """
         Retrieves the schema (column names, types, nullability, keys, default values)
         for a specific table in a database.
@@ -439,51 +466,64 @@ class MariaDBServer:
             if not schema_results:
                 exists_sql = "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = %s AND table_name = %s"
                 exists_result = await self._execute_query(exists_sql, params=(database_name, table_name))
-                if not exists_result or exists_result[0]['count'] == 0:
+                if not exists_result or exists_result[0]["count"] == 0:
                     logger.warning(f"TOOL WARNING: Table '{database_name}'.'{table_name}' not found or inaccessible.")
                     raise FileNotFoundError(f"Table '{database_name}'.'{table_name}' not found or inaccessible.")
                 else:
-                    logger.warning(f"Could not describe table '{database_name}'.'{table_name}'. It might be a view or lack permissions.")
+                    logger.warning(
+                        f"Could not describe table '{database_name}'.'{table_name}'. It might be a view or lack permissions."
+                    )
 
             for row in schema_results:
-                col_name = row.get('Field')
+                col_name = row.get("Field")
                 if col_name:
                     schema_info[col_name] = {
-                        'type': row.get('Type'),
-                        'nullable': row.get('Null', '').upper() == 'YES',
-                        'key': row.get('Key'),
-                        'default': row.get('Default'),
-                        'extra': row.get('Extra')
+                        "type": row.get("Type"),
+                        "nullable": row.get("Null", "").upper() == "YES",
+                        "key": row.get("Key"),
+                        "default": row.get("Default"),
+                        "extra": row.get("Extra"),
                     }
-            logger.info(f"TOOL END: get_table_schema completed. Columns found: {len(schema_info)}. Keys: {list(schema_info.keys())}")
+            logger.info(
+                f"TOOL END: get_table_schema completed. Columns found: {len(schema_info)}. Keys: {list(schema_info.keys())}"
+            )
             return schema_info
         except FileNotFoundError as e:
             logger.warning(f"TOOL WARNING: get_table_schema table not found: {e}")
             raise e
         except Exception as e:
-            logger.error(f"TOOL ERROR: get_table_schema failed for database_name={database_name}, table_name={table_name}: {e}", exc_info=True)
-            raise RuntimeError(f"Could not retrieve schema for table '{database_name}.{table_name}'.")
-        
-    async def get_table_schema_with_relations(self, database_name: str, table_name: str) -> Dict[str, Any]:
+            logger.error(
+                f"TOOL ERROR: get_table_schema failed for database_name={database_name}, table_name={table_name}: {e}",
+                exc_info=True,
+            )
+            raise RuntimeError(f"Could not retrieve schema for table '{database_name}.{table_name}'.") from e
+
+    async def get_table_schema_with_relations(self, database_name: str, table_name: str) -> dict[str, Any]:
         """
         Retrieves table schema with foreign key relationship information.
         Includes all basic schema info plus foreign key relationships and referenced tables.
         """
-        logger.info(f"TOOL START: get_table_schema_with_relations called. database_name={database_name}, table_name={table_name}")
+        logger.info(
+            f"TOOL START: get_table_schema_with_relations called. database_name={database_name}, table_name={table_name}"
+        )
         if not database_name or not database_name.isidentifier():
-            logger.warning(f"TOOL WARNING: get_table_schema_with_relations called with invalid database_name: {database_name}")
+            logger.warning(
+                f"TOOL WARNING: get_table_schema_with_relations called with invalid database_name: {database_name}"
+            )
             raise ValueError(f"Invalid database name provided: {database_name}")
         if not table_name or not table_name.isidentifier():
-            logger.warning(f"TOOL WARNING: get_table_schema_with_relations called with invalid table_name: {table_name}")
+            logger.warning(
+                f"TOOL WARNING: get_table_schema_with_relations called with invalid table_name: {table_name}"
+            )
             raise ValueError(f"Invalid table name provided: {table_name}")
 
         try:
             # 1. Get basic schema information
             basic_schema = await self.get_table_schema(database_name, table_name)
-            
+
             # 2. Retrieve foreign key information
             fk_sql = """
-            SELECT 
+            SELECT
                 kcu.COLUMN_NAME as column_name,
                 kcu.CONSTRAINT_NAME as constraint_name,
                 kcu.REFERENCED_TABLE_NAME as referenced_table,
@@ -494,53 +534,60 @@ class MariaDBServer:
             INNER JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
                 ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
                 AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
-            WHERE kcu.TABLE_SCHEMA = %s 
-              AND kcu.TABLE_NAME = %s 
+            WHERE kcu.TABLE_SCHEMA = %s
+              AND kcu.TABLE_NAME = %s
               AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
             ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
             """
-            
+
             fk_results = await self._execute_query(fk_sql, params=(database_name, table_name))
-            
+
             # 3. Add foreign key information to the basic schema
             enhanced_schema = {}
             for col_name, col_info in basic_schema.items():
                 enhanced_schema[col_name] = col_info.copy()
-                enhanced_schema[col_name]['foreign_key'] = None
-            
+                enhanced_schema[col_name]["foreign_key"] = None
+
             # 4. Add foreign key information to the corresponding columns
             for fk_row in fk_results:
-                column_name = fk_row['column_name']
+                column_name = fk_row["column_name"]
                 if column_name in enhanced_schema:
-                    enhanced_schema[column_name]['foreign_key'] = {
-                        'constraint_name': fk_row['constraint_name'],
-                        'referenced_table': fk_row['referenced_table'],
-                        'referenced_column': fk_row['referenced_column'],
-                        'on_update': fk_row['on_update'],
-                        'on_delete': fk_row['on_delete']
+                    enhanced_schema[column_name]["foreign_key"] = {
+                        "constraint_name": fk_row["constraint_name"],
+                        "referenced_table": fk_row["referenced_table"],
+                        "referenced_column": fk_row["referenced_column"],
+                        "on_update": fk_row["on_update"],
+                        "on_delete": fk_row["on_delete"],
                     }
-            
+
             # 5. Return the enhanced schema with foreign key relations
-            result = {
-                'table_name': table_name,
-                'columns': enhanced_schema
-            }
-            
-            logger.info(f"TOOL END: get_table_schema_with_relations completed. Columns: {len(enhanced_schema)}, Foreign keys: {len(fk_results)}")
+            result = {"table_name": table_name, "columns": enhanced_schema}
+
+            logger.info(
+                f"TOOL END: get_table_schema_with_relations completed. Columns: {len(enhanced_schema)}, Foreign keys: {len(fk_results)}"
+            )
             return result
-            
+
         except Exception as e:
-            logger.error(f"TOOL ERROR: get_table_schema_with_relations failed for database_name={database_name}, table_name={table_name}: {e}", exc_info=True)
-            raise RuntimeError(f"Could not retrieve schema with relations for table '{database_name}.{table_name}': {str(e)}")
+            logger.error(
+                f"TOOL ERROR: get_table_schema_with_relations failed for database_name={database_name}, table_name={table_name}: {e}",
+                exc_info=True,
+            )
+            raise RuntimeError(
+                f"Could not retrieve schema with relations for table '{database_name}.{table_name}': {str(e)}"
+            ) from e
 
-
-    async def execute_sql(self, sql_query: str, database_name: str, parameters: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+    async def execute_sql(
+        self, sql_query: str, database_name: str, parameters: list[Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Executes a read-only SQL query (primarily SELECT, SHOW, DESCRIBE) against a specified database
         and returns the results. Uses parameterized queries for safety.
         Example `parameters`: ["value1", 123] corresponding to %s placeholders in `sql_query`.
         """
-        logger.info(f"TOOL START: execute_sql called. database_name={database_name}, sql_query={sql_query[:100]}, parameters={parameters}")
+        logger.info(
+            f"TOOL START: execute_sql called. database_name={database_name}, sql_query={sql_query[:100]}, parameters={parameters}"
+        )
         if database_name and not database_name.isidentifier():
             logger.warning(f"TOOL WARNING: execute_sql called with invalid database_name: {database_name}")
             raise ValueError(f"Invalid database name provided: {database_name}")
@@ -550,10 +597,13 @@ class MariaDBServer:
             logger.info(f"TOOL END: execute_sql completed. Rows returned: {len(results)}.")
             return results
         except Exception as e:
-            logger.error(f"TOOL ERROR: execute_sql failed for database_name={database_name}, sql_query={sql_query[:100]}, parameters={parameters}: {e}", exc_info=True)
+            logger.error(
+                f"TOOL ERROR: execute_sql failed for database_name={database_name}, sql_query={sql_query[:100]}, parameters={parameters}: {e}",
+                exc_info=True,
+            )
             raise
-            
-    async def create_database(self, database_name: str) -> Dict[str, Any]:
+
+    async def create_database(self, database_name: str) -> dict[str, Any]:
         """
         Creates a new database if it doesn't exist.
         """
@@ -579,14 +629,16 @@ class MariaDBServer:
         except Exception as e:
             error_message = f"Failed to create database '{database_name}'."
             logger.error(f"TOOL ERROR: create_database. {error_message} Error: {e}", exc_info=True)
-            raise RuntimeError(f"{error_message} Reason: {str(e)}")
+            raise RuntimeError(f"{error_message} Reason: {str(e)}") from e
 
-    async def create_vector_store_tool(self,
-                                  database_name: str,
-                                  vector_store_name: str,
-                                  embedding_service: EmbeddingService,
-                                  model_name: Optional[str] = None,
-                                  distance_function: Optional[str] = None) -> Dict[str, Any]:
+    async def create_vector_store_tool(
+        self,
+        database_name: str,
+        vector_store_name: str,
+        embedding_service: EmbeddingService,
+        model_name: str | None = None,
+        distance_function: str | None = None,
+    ) -> dict[str, Any]:
         """
         This tool creates a new table which stores embeddings.
 
@@ -604,7 +656,9 @@ class MariaDBServer:
         - distance_function (str, optional): 'euclidean' or 'cosine'. Defaults to 'cosine'.
         """
         embedding_length = await embedding_service.get_embedding_dimension(model_name)
-        logger.info(f"TOOL START: create_vector_store called. DB: '{database_name}', Store: '{vector_store_name}', Model: '{model_name}', Embedding_Length: {embedding_length}, Distance_Requested: '{distance_function}'")
+        logger.info(
+            f"TOOL START: create_vector_store called. DB: '{database_name}', Store: '{vector_store_name}', Model: '{model_name}', Embedding_Length: {embedding_length}, Distance_Requested: '{distance_function}'"
+        )
 
         # --- Input Validation ---
         if not database_name or not database_name.isidentifier():
@@ -620,28 +674,34 @@ class MariaDBServer:
 
         # Validate and set distance_function
         valid_distance_functions_map = {"euclidean": "EUCLIDEAN", "cosine": "COSINE"}
-        processed_distance_function_sql = valid_distance_functions_map["cosine"] # Default
+        processed_distance_function_sql = valid_distance_functions_map["cosine"]  # Default
 
         if distance_function:
             df_lower = distance_function.lower()
             if df_lower in valid_distance_functions_map:
                 processed_distance_function_sql = valid_distance_functions_map[df_lower]
             else:
-                logger.error(f"Invalid distance_function: '{distance_function}'. Must be one of {list(valid_distance_functions_map.keys())}.")
-                raise ValueError(f"Invalid distance_function: '{distance_function}'. Must be one of {list(valid_distance_functions_map.keys())}.")
+                logger.error(
+                    f"Invalid distance_function: '{distance_function}'. Must be one of {list(valid_distance_functions_map.keys())}."
+                )
+                raise ValueError(
+                    f"Invalid distance_function: '{distance_function}'. Must be one of {list(valid_distance_functions_map.keys())}."
+                )
         else:
             logger.info(f"Distance function not provided, defaulting to '{processed_distance_function_sql}'.")
-        
+
         logger.info(f"Using SQL distance function: '{processed_distance_function_sql}'.")
 
         # --- Database Existence Check ---
         if not await self._database_exists(database_name):
             logger.info(f"Database '{database_name}' does not exist. Attempting to create it.")
             try:
-                await self.create_database(database_name) 
+                await self.create_database(database_name)
             except Exception as db_create_e:
                 logger.error(f"Failed to ensure database '{database_name}' existence: {db_create_e}", exc_info=True)
-                raise RuntimeError(f"Failed to ensure database '{database_name}' exists before creating vector store. Reason: {str(db_create_e)}")
+                raise RuntimeError(
+                    f"Failed to ensure database '{database_name}' exists before creating vector store. Reason: {str(db_create_e)}"
+                ) from db_create_e
 
         # --- Table Existence Check ---
         if await self._table_exists(database_name, vector_store_name):
@@ -651,7 +711,7 @@ class MariaDBServer:
                 "status": "exists",
                 "message": message,
                 "database_name": database_name,
-                "vector_store_name": vector_store_name
+                "vector_store_name": vector_store_name,
             }
 
         # --- SQL Query for Vector Store Table Creation ---
@@ -668,21 +728,21 @@ class MariaDBServer:
         try:
             # --- Execute Query ---
             await self._execute_query(schema_query, database=database_name)
-            
+
             success_message = f"Vector store '{vector_store_name}' created successfully in database '{database_name}' with {processed_distance_function_sql} distance."
             logger.info(f"TOOL END: create_vector_store completed. {success_message}")
             return {
                 "status": "success",
                 "message": success_message,
                 "database_name": database_name,
-                "vector_store_name": vector_store_name
+                "vector_store_name": vector_store_name,
             }
         except Exception as e:
             error_message = f"Failed to create vector store '{vector_store_name}' in database '{database_name}'."
             logger.error(f"TOOL ERROR: create_vector_store failed. {error_message} Error: {e}", exc_info=True)
-            raise RuntimeError(f"{error_message} Reason: {str(e)}")
+            raise RuntimeError(f"{error_message} Reason: {str(e)}") from e
 
-    async def list_vector_stores(self, database_name: str) -> List[str]:
+    async def list_vector_stores(self, database_name: str) -> list[str]:
         """
         Lists all tables within the specified database that are identified as vector stores.
         A table is considered a vector store if it contains an indexed column named 'embedding'
@@ -694,7 +754,7 @@ class MariaDBServer:
         Returns:
         - List[str]: A list of table names that are identified as vector stores.
                      Returns an empty list if no such tables are found or if the database doesn't exist.
-        
+
         Raises:
         - ValueError: If the database_name is invalid.
         - RuntimeError: For database errors during the operation.
@@ -724,31 +784,29 @@ class MariaDBServer:
             AND T1.COLUMN_NAME = T2.COLUMN_NAME
         WHERE T1.TABLE_SCHEMA = %s
           AND UPPER(T1.COLUMN_NAME) = 'EMBEDDING'
-          AND UPPER(T1.DATA_TYPE) = 'VECTOR' 
+          AND UPPER(T1.DATA_TYPE) = 'VECTOR'
         ORDER BY T1.TABLE_NAME;
         """
 
         try:
-            results = await self._execute_query(sql_query, params=(database_name,), database='information_schema')
-            
-            store_list = [row['TABLE_NAME'] for row in results if 'TABLE_NAME' in row]
-            
+            results = await self._execute_query(sql_query, params=(database_name,), database="information_schema")
+
+            store_list = [row["TABLE_NAME"] for row in results if "TABLE_NAME" in row]
+
             if not store_list:
                 logger.info(f"No vector stores found in database '{database_name}'.")
             else:
                 logger.info(f"Found {len(store_list)} vector store(s) in database '{database_name}': {store_list}")
-            
+
             logger.info(f"TOOL END: list_vector_stores completed for database '{database_name}'.")
             return store_list
 
         except Exception as e:
             error_message = f"Failed to list vector stores in database '{database_name}'."
             logger.error(f"TOOL ERROR: list_vector_stores. {error_message} Error: {e}", exc_info=True)
-            raise RuntimeError(f"{error_message} Reason: {str(e)}")
-            
-    async def delete_vector_store(self,
-                                  database_name: str,
-                                  vector_store_name: str) -> Dict[str, Any]:
+            raise RuntimeError(f"{error_message} Reason: {str(e)}") from e
+
+    async def delete_vector_store(self, database_name: str, vector_store_name: str) -> dict[str, Any]:
         """
         Deletes a vector store (table) from the specified database.
         It first verifies if the database and table exist, and if the table
@@ -790,20 +848,22 @@ class MariaDBServer:
             message = f"Table '{vector_store_name}' in database '{database_name}' is not a valid vector store (missing indexed 'embedding' column of type VECTOR). Deletion aborted."
             logger.warning(message)
             return {"status": "not_vector_store", "message": message}
-            
+
         # --- SQL Query for Deletion ---
         drop_query = f"DROP TABLE IF EXISTS `{vector_store_name}`;"
 
         try:
             await self._execute_query(drop_query, database=database_name)
-            
-            success_message = f"Vector store '{vector_store_name}' deleted successfully from database '{database_name}'."
+
+            success_message = (
+                f"Vector store '{vector_store_name}' deleted successfully from database '{database_name}'."
+            )
             logger.info(f"TOOL END: delete_vector_store. {success_message}")
             return {
                 "status": "success",
                 "message": success_message,
                 "database_name": database_name,
-                "vector_store_name": vector_store_name
+                "vector_store_name": vector_store_name,
             }
         except Exception as e:
             error_message = f"Failed to delete vector store '{vector_store_name}' from database '{database_name}'."
@@ -812,10 +872,17 @@ class MariaDBServer:
                 "status": "error",
                 "message": f"{error_message} Reason: {str(e)}",
                 "database_name": database_name,
-                "vector_store_name": vector_store_name
+                "vector_store_name": vector_store_name,
             }
-            
-    async def insert_docs_vector_store(self, database_name: str, vector_store_name: str, documents: List[str], metadata: Optional[List[dict]] = None, batch_size: int = 100) -> dict:
+
+    async def insert_docs_vector_store(
+        self,
+        database_name: str,
+        vector_store_name: str,
+        documents: list[str],
+        metadata: list[dict] | None = None,
+        batch_size: int = 100,
+    ) -> dict:
         """
         Insert a batch of documents (with optional metadata) into a vector store.
         Documents must be a non-empty list of strings. Metadata, if provided, must be a list of dicts of the same length as documents.
@@ -828,7 +895,9 @@ class MariaDBServer:
             metadata: Optional list of metadata dicts (same length as documents)
             batch_size: Number of documents to insert per batch (default 100)
         """
-        logger.info(f"TOOL START: insert_docs_vector_store called for {database_name}.{vector_store_name} with {len(documents)} documents")
+        logger.info(
+            f"TOOL START: insert_docs_vector_store called for {database_name}.{vector_store_name} with {len(documents)} documents"
+        )
 
         if not database_name or not database_name.isidentifier():
             logger.error(f"Invalid database_name: '{database_name}'")
@@ -836,7 +905,11 @@ class MariaDBServer:
         if not vector_store_name or not vector_store_name.isidentifier():
             logger.error(f"Invalid vector_store_name: '{vector_store_name}'")
             raise ValueError(f"Invalid vector_store_name: '{vector_store_name}'")
-        if not isinstance(documents, list) or not documents or not all(isinstance(doc, str) and doc for doc in documents):
+        if (
+            not isinstance(documents, list)
+            or not documents
+            or not all(isinstance(doc, str) and doc for doc in documents)
+        ):
             logger.error("'documents' must be a non-empty list of non-empty strings.")
             raise ValueError("'documents' must be a non-empty list of non-empty strings.")
 
@@ -875,10 +948,12 @@ class MariaDBServer:
                 insert_query = f"INSERT INTO `{database_name}`.`{vector_store_name}` (document, embedding, metadata) VALUES (%s, VEC_FromText(%s), %s)"
 
                 # Insert each document (MariaDB doesn't support batch vector inserts well)
-                for doc, emb, meta in zip(batch_docs, embeddings, metadata_json):
+                for doc, emb, meta in zip(batch_docs, embeddings, metadata_json, strict=False):
                     emb_str = json.dumps(emb)
                     try:
-                        await self._execute_query(insert_query, params=(doc, emb_str, meta), database=database_name, limit_results=False)
+                        await self._execute_query(
+                            insert_query, params=(doc, emb_str, meta), database=database_name, limit_results=False
+                        )
                         inserted += 1
                     except Exception as e:
                         logger.error(f"Failed to insert doc into {database_name}.{vector_store_name}: {e}")
@@ -888,15 +963,23 @@ class MariaDBServer:
                 logger.error(f"Failed to process batch {batch_start}-{batch_end}: {e}", exc_info=True)
                 errors.append(f"Batch {batch_start}-{batch_end}: {str(e)}")
 
-        logger.info(f"TOOL END: insert_docs_vector_store. Inserted {inserted}/{len(documents)} documents (errors: {len(errors)})")
-        result: Dict[str, Any] = {"status": "success" if inserted == len(documents) else "partial", "inserted": inserted, "total": len(documents)}
+        logger.info(
+            f"TOOL END: insert_docs_vector_store. Inserted {inserted}/{len(documents)} documents (errors: {len(errors)})"
+        )
+        result: dict[str, Any] = {
+            "status": "success" if inserted == len(documents) else "partial",
+            "inserted": inserted,
+            "total": len(documents),
+        }
         if errors:
             result["errors"] = errors[:10]  # Limit error messages to avoid huge responses
             if len(errors) > 10:
                 result["errors_truncated"] = len(errors) - 10
         return result
-        
-    async def search_vector_store(self, user_query: str, database_name: str, vector_store_name: str, k: int = 7) -> list:
+
+    async def search_vector_store(
+        self, user_query: str, database_name: str, vector_store_name: str, k: int = 7
+    ) -> list:
         """
         Search a vector store for the most similar documents to a query using semantic search.
 
@@ -949,91 +1032,107 @@ class MariaDBServer:
             LIMIT %s
         """
         try:
-            results = await self._execute_query(search_query, params=(emb_str, k), database=database_name, limit_results=False)
+            results = await self._execute_query(
+                search_query, params=(emb_str, k), database=database_name, limit_results=False
+            )
             for row in results:
-                if isinstance(row.get('metadata'), str):
+                if isinstance(row.get("metadata"), str):
                     try:
-                        row['metadata'] = json.loads(row['metadata'])
+                        row["metadata"] = json.loads(row["metadata"])
                     except json.JSONDecodeError as e:
-                        raw_meta = row.get('metadata') or ''
-                        logger.warning(f"Failed to parse metadata JSON for document: {e}. Raw value: {raw_meta[:100]}...")
+                        raw_meta = row.get("metadata") or ""
+                        logger.warning(
+                            f"Failed to parse metadata JSON for document: {e}. Raw value: {raw_meta[:100]}..."
+                        )
                         # Keep raw string if parsing fails
             logger.info(f"TOOL END: search_vector_store. Returned {len(results)} results.")
             return results
         except Exception as e:
             logger.error(f"Failed to search vector store {database_name}.{vector_store_name}: {e}", exc_info=True)
             raise RuntimeError(f"Vector store search failed: {e}") from e
-            
+
     # --- Tool Registration (Synchronous) ---
     def register_tools(self):
         """Registers the class methods as MCP tools using the instance. This is synchronous."""
         if self.pool is None:
-             logger.error("Cannot register tools: Database pool is not initialized.")
-             raise RuntimeError("Database pool must be initialized before registering tools.")
+            logger.error("Cannot register tools: Database pool is not initialized.")
+            raise RuntimeError("Database pool must be initialized before registering tools.")
 
         @self.mcp.tool
-        async def list_databases() -> List[str]:
+        async def list_databases() -> list[str]:
             """Lists all accessible databases on the connected MariaDB server."""
             return await self.list_databases()
-            
+
         @self.mcp.tool
-        async def list_tables(database_name: str) -> List[str]:
+        async def list_tables(database_name: str) -> list[str]:
             """Lists all tables within the specified database."""
             return await self.list_tables(database_name)
-            
+
         @self.mcp.tool
-        async def get_table_schema(database_name: str, table_name: str) -> Dict[str, Any]:
+        async def get_table_schema(database_name: str, table_name: str) -> dict[str, Any]:
             """Retrieves the schema for a specific table in a database."""
             return await self.get_table_schema(database_name, table_name)
-            
+
         @self.mcp.tool
-        async def get_table_schema_with_relations(database_name: str, table_name: str) -> Dict[str, Any]:
+        async def get_table_schema_with_relations(database_name: str, table_name: str) -> dict[str, Any]:
             """Retrieves table schema with foreign key relationship information."""
             return await self.get_table_schema_with_relations(database_name, table_name)
-            
+
         @self.mcp.tool
-        async def execute_sql(sql_query: str, database_name: str, parameters: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+        async def execute_sql(
+            sql_query: str, database_name: str, parameters: list[Any] | None = None
+        ) -> list[dict[str, Any]]:
             """Executes a read-only SQL query against a specified database."""
             return await self.execute_sql(sql_query, database_name, parameters)
-            
+
         @self.mcp.tool
-        async def create_database(database_name: str) -> Dict[str, Any]:
+        async def create_database(database_name: str) -> dict[str, Any]:
             """Creates a new database if it doesn't exist."""
             return await self.create_database(database_name)
-            
+
         if EMBEDDING_PROVIDER is not None:
+
             @self.mcp.tool
-            async def create_vector_store(database_name: str, vector_store_name: str, model_name: Optional[str] = None, distance_function: Optional[str] = None) -> dict:
+            async def create_vector_store(
+                database_name: str,
+                vector_store_name: str,
+                model_name: str | None = None,
+                distance_function: str | None = None,
+            ) -> dict:
                 """Creates a table which stores embeddings."""
                 return await self.create_vector_store(database_name, vector_store_name, model_name, distance_function)
-                
+
             @self.mcp.tool
-            async def list_vector_stores(database_name: str) -> List[str]:
+            async def list_vector_stores(database_name: str) -> list[str]:
                 """Lists all vector stores in a database."""
                 return await self.list_vector_stores(database_name)
-                
+
             @self.mcp.tool
-            async def delete_vector_store(database_name: str, vector_store_name: str) -> Dict[str, Any]:
+            async def delete_vector_store(database_name: str, vector_store_name: str) -> dict[str, Any]:
                 """Deletes a vector store from the specified database."""
                 return await self.delete_vector_store(database_name, vector_store_name)
-                
+
             @self.mcp.tool
-            async def insert_docs_vector_store(database_name: str, vector_store_name: str, documents: List[str], metadata: Optional[List[dict]] = None) -> dict:
+            async def insert_docs_vector_store(
+                database_name: str, vector_store_name: str, documents: list[str], metadata: list[dict] | None = None
+            ) -> dict:
                 """Insert a batch of documents into a vector store."""
                 return await self.insert_docs_vector_store(database_name, vector_store_name, documents, metadata)
-                
+
             @self.mcp.tool
-            async def search_vector_store(user_query: str, database_name: str, vector_store_name: str, k: int = 7) -> list:
+            async def search_vector_store(
+                user_query: str, database_name: str, vector_store_name: str, k: int = 7
+            ) -> list:
                 """Search a vector store for similar documents."""
                 return await self.search_vector_store(user_query, database_name, vector_store_name, k)
-                
+
         logger.info("Registered MCP tools explicitly.")
 
         # Register /health endpoint for HTTP/SSE transports
         self.mcp.custom_route("/health", methods=["GET"])(self._health_endpoint)
         logger.info("Registered /health endpoint.")
 
-    def get_health(self) -> Dict[str, Any]:
+    def get_health(self) -> dict[str, Any]:
         """Returns health check information for the server."""
         uptime_seconds = time.time() - self._start_time
         pool_status = "connected" if self.pool is not None else "disconnected"
@@ -1055,7 +1154,7 @@ class MariaDBServer:
                 "avg_query_time_ms": round(avg_query_time, 2),
                 "embeddings_generated": self._metrics["embeddings_generated"],
                 "pool_acquisitions": self._metrics["pool_acquisitions"],
-            }
+            },
         }
 
     async def _health_endpoint(self, request):
@@ -1092,8 +1191,7 @@ class MariaDBServer:
                         allow_credentials=True,
                         expose_headers=["*"],
                     ),
-                    Middleware(TrustedHostMiddleware,
-                               allowed_hosts=ALLOWED_HOSTS)
+                    Middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS),
                 ]
 
             if transport == "sse":
@@ -1124,14 +1222,16 @@ class MariaDBServer:
 # --- Main Execution Block ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MariaDB MCP Server")
-    parser.add_argument('--transport', type=str, default='stdio', choices=['stdio', 'sse', 'http'],
-                        help='MCP transport protocol (stdio, sse, or http)')
-    parser.add_argument('--host', type=str, default='127.0.0.1',
-                        help='Host for SSE or HTTP transport')
-    parser.add_argument('--port', type=int, default=9001,
-                        help='Port for SSE or HTTP transport')
-    parser.add_argument('--path', type=str, default='/mcp',
-                        help='Path for HTTP transport (default: /mcp)')
+    parser.add_argument(
+        "--transport",
+        type=str,
+        default="stdio",
+        choices=["stdio", "sse", "http"],
+        help="MCP transport protocol (stdio, sse, or http)",
+    )
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for SSE or HTTP transport")
+    parser.add_argument("--port", type=int, default=9001, help="Port for SSE or HTTP transport")
+    parser.add_argument("--path", type=str, default="/mcp", help="Path for HTTP transport (default: /mcp)")
     args = parser.parse_args()
 
     # 1. Create the server instance
@@ -1141,18 +1241,14 @@ if __name__ == "__main__":
     try:
         # 2. Use anyio.run to manage the event loop and call the main async server logic
         anyio.run(
-            partial(server.run_async_server, 
-                    transport=args.transport, 
-                    host=args.host, 
-                    port=args.port, 
-                    path=args.path)
+            partial(server.run_async_server, transport=args.transport, host=args.host, port=args.port, path=args.path)
         )
         logger.info("Server finished gracefully.")
 
     except KeyboardInterrupt:
-         logger.info("Server execution interrupted by user.")
+        logger.info("Server execution interrupted by user.")
     except Exception as e:
-         logger.critical(f"Server failed to start or crashed: {e}", exc_info=True)
-         exit_code = 1
+        logger.critical(f"Server failed to start or crashed: {e}", exc_info=True)
+        exit_code = 1
     finally:
         logger.info(f"Server exiting with code {exit_code}.")

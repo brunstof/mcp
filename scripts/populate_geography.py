@@ -6,9 +6,9 @@ Data source: https://github.com/dr5hn/countries-states-cities-database
 Tables: regions (continents), subregions, countries, states, cities
 """
 
+import gzip
 import os
 import sys
-import gzip
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -17,9 +17,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 import asyncio
+
 import asyncmy
 
 # Database config from environment
@@ -58,8 +60,8 @@ def download_file(url: str, dest: Path, compressed: bool = False) -> Path:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gz") as tmp:
             urllib.request.urlretrieve(url, tmp.name)
             print(f"  Decompressing {dest.name}...")
-            with gzip.open(tmp.name, 'rb') as f_in:
-                with open(dest, 'wb') as f_out:
+            with gzip.open(tmp.name, "rb") as f_in:
+                with open(dest, "wb") as f_out:
                     f_out.write(f_in.read())
             os.unlink(tmp.name)
     else:
@@ -73,44 +75,42 @@ def download_file(url: str, dest: Path, compressed: bool = False) -> Path:
 def fix_sql_for_mariadb(content: str) -> str:
     """Fix MySQL-specific syntax for MariaDB compatibility."""
     # Remove MySQL-specific SET statements that might cause issues
-    lines = content.split('\n')
+    lines = content.split("\n")
     filtered_lines = []
 
     for line in lines:
         # Skip problematic SET statements
-        if line.strip().startswith('SET ') and any(x in line for x in [
-            'GLOBAL', 'SESSION', 'sql_require_primary_key'
-        ]):
+        if line.strip().startswith("SET ") and any(x in line for x in ["GLOBAL", "SESSION", "sql_require_primary_key"]):
             continue
         filtered_lines.append(line)
 
-    return '\n'.join(filtered_lines)
+    return "\n".join(filtered_lines)
 
 
 async def execute_sql_file(conn, filepath: Path, description: str):
     """Execute SQL statements from a file."""
     print(f"\nImporting {description} from {filepath.name}...")
 
-    content = filepath.read_text(encoding='utf-8')
+    content = filepath.read_text(encoding="utf-8")
     content = fix_sql_for_mariadb(content)
 
     # Split into individual statements
     statements = []
     current = []
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         stripped = line.strip()
 
         # Skip comments and empty lines
-        if not stripped or stripped.startswith('--') or stripped.startswith('/*'):
+        if not stripped or stripped.startswith("--") or stripped.startswith("/*"):
             continue
 
         current.append(line)
 
         # Check for statement end
-        if stripped.endswith(';'):
-            stmt = '\n'.join(current).strip()
-            if stmt and not stmt.startswith('--'):
+        if stripped.endswith(";"):
+            stmt = "\n".join(current).strip()
+            if stmt and not stmt.startswith("--"):
                 statements.append(stmt)
             current = []
 
@@ -133,7 +133,7 @@ async def execute_sql_file(conn, filepath: Path, description: str):
                 if errors <= 3:
                     print(f"  Warning: {str(e)[:100]}")
                 elif errors == 4:
-                    print(f"  (suppressing further warnings...)")
+                    print("  (suppressing further warnings...)")
 
         await conn.commit()
         print(f"  Completed: {executed} statements executed, {errors} errors")
@@ -161,7 +161,7 @@ async def main():
     downloaded_files = []
     for filename, compressed in SQL_FILES:
         url = f"{BASE_URL}/{filename}"
-        dest_name = filename.replace('.gz', '') if compressed else filename
+        dest_name = filename.replace(".gz", "") if compressed else filename
         dest = download_dir / dest_name
 
         if dest.exists():
@@ -169,7 +169,7 @@ async def main():
         else:
             download_file(url, dest, compressed)
 
-        downloaded_files.append((dest, filename.replace('.sql.gz', '').replace('.sql', '')))
+        downloaded_files.append((dest, filename.replace(".sql.gz", "").replace(".sql", "")))
 
     # Connect to MariaDB
     print("\nStep 2: Connecting to MariaDB...")
@@ -181,7 +181,7 @@ async def main():
             password=DB_PASSWORD,
             autocommit=False,
         )
-        print(f"  Connected successfully")
+        print("  Connected successfully")
     except Exception as e:
         print(f"Error connecting to MariaDB: {e}")
         sys.exit(1)
@@ -190,10 +190,12 @@ async def main():
         async with conn.cursor() as cursor:
             # Create database
             print(f"\nStep 3: Creating database '{DATABASE_NAME}'...")
-            await cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DATABASE_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+            await cursor.execute(
+                f"CREATE DATABASE IF NOT EXISTS `{DATABASE_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
             await cursor.execute(f"USE `{DATABASE_NAME}`")
             await conn.commit()
-            print(f"  Database ready")
+            print("  Database ready")
 
             # Disable foreign key checks during import
             await cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
@@ -229,7 +231,7 @@ async def main():
         print("=" * 60)
 
         async with conn.cursor() as cursor:
-            tables = ['regions', 'subregions', 'countries', 'states', 'cities']
+            tables = ["regions", "subregions", "countries", "states", "cities"]
             for table in tables:
                 try:
                     await cursor.execute(f"SELECT COUNT(*) as cnt FROM `{table}`")

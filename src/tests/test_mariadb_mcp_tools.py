@@ -1,10 +1,5 @@
-# -*- coding: utf-8 -*-
-import unittest
-from unittest.mock import AsyncMock, patch
 import asyncio
-
-import sys
-import os
+import unittest
 
 # Import the MariaDBServer from the project
 from server import MariaDBServer
@@ -32,10 +27,12 @@ directly to run the tests as it relies on Cascade's MCP tool interaction.
 # The following functions represent the test steps performed manually.
 # Expected outcomes are based on the interactive session results.
 
+
 def setup_mcp():
     server = MariaDBServer()
     asyncio.run(server.initialize_pool())
     return server
+
 
 class TestMariaDBMCPTools(unittest.IsolatedAsyncioTestCase):
     async def setUp(self):
@@ -59,9 +56,11 @@ class TestMariaDBMCPTools(unittest.IsolatedAsyncioTestCase):
         for sys_db in ["mysql", "sys"]:
             self.assertIn(sys_db, result)
 
+
 # If this file is run directly, run the tests
 if __name__ == "__main__":
     unittest.main()
+
 
 def test_step_1_list_databases():
     """
@@ -73,6 +72,7 @@ def test_step_1_list_databases():
     print("Executing: mcp0_list_databases()")
     # Manual execution via Cascade passed.
 
+
 def test_step_2_list_tables_valid_db():
     """
     Test: Call mcp0_list_tables with a valid database ('information_schema').
@@ -82,6 +82,7 @@ def test_step_2_list_tables_valid_db():
     """
     print("Executing: mcp0_list_tables(database_name='information_schema')")
     # Manual execution via Cascade passed.
+
 
 def test_step_3_get_schema_valid_table():
     """
@@ -93,6 +94,7 @@ def test_step_3_get_schema_valid_table():
     print("Executing: mcp0_get_table_schema(database_name='information_schema', table_name='TABLES')")
     # Manual execution via Cascade passed.
 
+
 def test_step_4_execute_simple_select():
     """
     Test: Call mcp0_execute_sql with a simple SELECT query.
@@ -103,6 +105,7 @@ def test_step_4_execute_simple_select():
     print("Executing: mcp0_execute_sql(sql_query='SELECT * FROM information_schema.TABLES LIMIT 1')")
     # Manual execution via Cascade passed.
 
+
 def test_step_5_execute_parameterized_select():
     """
     Test: Call mcp0_execute_sql with a parameterized SELECT query.
@@ -110,10 +113,14 @@ def test_step_5_execute_parameterized_select():
     Expected Outcome: Success, returns JSON list of filtered query results.
     Result: PASSED (Observed result for SELECT ... WHERE TABLE_SCHEMA = %s)
     """
-    print("Executing: mcp0_execute_sql(sql_query='SELECT ... WHERE TABLE_SCHEMA = %s', parameters=['information_schema'])")
+    print(
+        "Executing: mcp0_execute_sql(sql_query='SELECT ... WHERE TABLE_SCHEMA = %s', parameters=['information_schema'])"
+    )
     # Manual execution via Cascade passed.
 
+
 # --- Complex / Edge Case Tests ---
+
 
 def test_step_6_list_tables_nonexistent_db():
     """
@@ -125,6 +132,7 @@ def test_step_6_list_tables_nonexistent_db():
     print("Executing: mcp0_list_tables(database_name='db_that_does_not_exist_cascade_test')")
     # Manual execution via Cascade passed (tool reported error).
 
+
 def test_step_7_get_schema_nonexistent_table():
     """
     Test: Call mcp0_get_table_schema for a non-existent table.
@@ -132,8 +140,11 @@ def test_step_7_get_schema_nonexistent_table():
     Expected Outcome: Failure/Error response indicating schema retrieval failure.
     Result: PASSED (Observed error: "Could not retrieve schema for table ...")
     """
-    print("Executing: mcp0_get_table_schema(database_name='information_schema', table_name='table_that_does_not_exist')")
+    print(
+        "Executing: mcp0_get_table_schema(database_name='information_schema', table_name='table_that_does_not_exist')"
+    )
     # Manual execution via Cascade passed (tool reported error).
+
 
 def test_step_8_execute_complex_join():
     """
@@ -145,6 +156,7 @@ def test_step_8_execute_complex_join():
     print("Executing: mcp0_execute_sql(sql_query='SELECT ... JOIN ...')")
     # Manual execution via Cascade passed.
 
+
 def test_step_9_execute_aggregation():
     """
     Test: Call mcp0_execute_sql with an aggregation query (COUNT/GROUP BY).
@@ -154,6 +166,7 @@ def test_step_9_execute_aggregation():
     """
     print("Executing: mcp0_execute_sql(sql_query='SELECT COUNT(*) ... GROUP BY ...')")
     # Manual execution via Cascade passed.
+
 
 def test_step_10_execute_param_empty_string():
     """
@@ -165,6 +178,7 @@ def test_step_10_execute_param_empty_string():
     print("Executing: mcp0_execute_sql(sql_query='SELECT ... WHERE col = %s', parameters=[''])")
     # Manual execution via Cascade passed.
 
+
 def test_step_11_execute_param_mismatch():
     """
     Test: Call mcp0_execute_sql with incorrect number of parameters.
@@ -175,6 +189,7 @@ def test_step_11_execute_param_mismatch():
     print("Executing: mcp0_execute_sql(sql_query='SELECT ... WHERE col1 = %s AND col2 = %s', parameters=['one_param'])")
     # Manual execution via Cascade passed (tool reported error).
 
+
 def test_step_12_execute_show_command():
     """
     Test: Call mcp0_execute_sql with a SHOW command (requires escaping '%').
@@ -182,7 +197,7 @@ def test_step_12_execute_show_command():
     Expected Outcome: Success, returns JSON list of results from SHOW VARIABLES.
     Result: PASSED (Observed results for SHOW VARIABLES LIKE 'version%%')
     """
-    print("Executing: mcp0_execute_sql(sql_query='SHOW VARIABLES LIKE \'version%%\'')")
+    print("Executing: mcp0_execute_sql(sql_query='SHOW VARIABLES LIKE 'version%%'')")
     # Manual execution via Cascade passed.
 
 
