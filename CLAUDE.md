@@ -21,7 +21,19 @@ uv run src/server.py
 uv run src/server.py --transport sse --host 127.0.0.1 --port 9001
 uv run src/server.py --transport http --host 127.0.0.1 --port 9001 --path /mcp
 
-# Run tests (requires live MariaDB with configured .env)
+# Lint, format, and type-check (the CI gate — no DB required)
+uv run ruff check src/            # lint (add --fix to autofix)
+uv run ruff format src/           # format (drop to --check in CI)
+uv run mypy src/                  # type-check
+
+# Pre-commit hooks (ruff + mypy + secret detection)
+uv run pre-commit install         # one-time
+uv run pre-commit run --all-files
+
+# Run tests
+# Unit tests need NO database (pool/_execute_query are mocked):
+uv run -m pytest src/tests/test_execute_query_unit.py src/tests/test_list_databases_unittest.py -v
+# Full/integration + vector tests require a live MariaDB with configured .env:
 uv run -m pytest src/tests/ -v
 uv run -m pytest src/tests/test_mcp_server.py::TestMariaDBMCPTools::test_list_databases
 
@@ -115,6 +127,8 @@ HTTP/SSE transports expose `/health` endpoint returning:
 - Catch `AsyncMyError` for database errors, `PermissionError` for read-only violations
 - Vector store tests require `EMBEDDING_PROVIDER` configured
 - Use backtick quoting for identifiers in SQL: `` `database_name`.`table_name` ``
+- Lint/type gate (enforced by `.pre-commit-config.yaml` + `.github/workflows/ci.yml`): `uv run ruff check src/`, `uv run ruff format src/`, `uv run mypy src/`
+- Exploration scripts in `scripts/exploration/` MUST read credentials from environment variables (via `_conn.py`) — never hardcode secrets
 
 ## Custom Commands
 
@@ -132,3 +146,14 @@ HTTP/SSE transports expose `/health` endpoint returning:
 - Tests start server with stdio transport using FastMCP test client
 - Vector store tests require `EMBEDDING_PROVIDER` to be configured
 - Run single test: `uv run -m pytest src/tests/test_mcp_server.py::TestClass::test_method -v`
+- **Unit tests need no DB** (pool/`_execute_query` mocked): `uv run -m pytest src/tests/test_execute_query_unit.py src/tests/test_list_databases_unittest.py -v`. `test_execute_query_unit.py` is the safety net for the planned `%s` → `?` driver migration
+
+## Repo Layout
+
+- `src/` — `server.py`, `config.py`, `embeddings.py`, `tests/`
+- `scripts/exploration/` — ad-hoc DB inspection scripts; **env-based credentials only** (`_conn.py`)
+- `scripts/` — geography loader + MCP client demos
+- `docs/dashboards/` — self-contained HTML dashboards (architecture, infrastructure, status, tech stack, testing); open `index.html`. Mermaid is vendored under `docs/dashboards/vendor/` (git-ignored, CDN fallback in the HTML)
+- `.github/workflows/ci.yml` — lint/type gate + MariaDB-service test job
+
+A six-phase modernization is in progress; **Phases 0 & 1 (cleanup + tooling/CI) are complete**. Planned: refactor `server.py`, migrate `asyncmy` → official `mariadb` Connector 2.0 (changes `%s` placeholders to `?`), upgrade FastMCP `2.12` → `3.x`, add OpenTelemetry. See `docs/dashboards/implementation-status.html`.

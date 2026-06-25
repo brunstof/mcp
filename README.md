@@ -15,7 +15,10 @@ The MCP MariaDB Server provides a Model Context Protocol (MCP) interface for man
 - [Usage Examples](#usage-examples)
 - [Integration - Claude desktop/Cursor/Windsurf](#integration---claude-desktopcursorwindsurf)
 - [Logging](#logging)
-- [Testing](#testing)
+- [Testing & Quality](#testing--quality)
+- [Development & Quality](#development--quality)
+- [Project Dashboards](#project-dashboards)
+- [Project Status & Roadmap](#project-status--roadmap)
 ---
 
 ## Overview
@@ -178,6 +181,39 @@ DB_NAME=your_default_database
 MCP_READ_ONLY=true
 MCP_MAX_POOL_SIZE=10
 ```
+
+#### Multiple Database Support
+
+The server can connect to several MariaDB/MySQL servers at once. Use the
+comma-separated `*S` variants of the connection variables instead of the
+single-value ones; entries are matched by position. The first entry becomes
+the default pool, and additional pools are keyed by `host:port`.
+
+| Variable        | Description                                  |
+|-----------------|----------------------------------------------|
+| `DB_HOSTS`      | Comma-separated hosts                        |
+| `DB_PORTS`      | Comma-separated ports                        |
+| `DB_USERS`      | Comma-separated users                        |
+| `DB_PASSWORDS`  | Comma-separated passwords                    |
+| `DB_NAMES`      | Comma-separated default databases (optional) |
+| `DB_CHARSETS`   | Comma-separated charsets (optional)          |
+
+```dotenv
+DB_HOSTS=localhost,db2.internal
+DB_PORTS=3306,3320
+DB_USERS=your_db_user,your_other_user
+DB_PASSWORDS=your_db_password,your_other_password
+DB_NAMES=demo,
+DB_CHARSETS=,
+
+MCP_READ_ONLY=false
+MCP_MAX_POOL_SIZE=10
+```
+
+Each connection keeps its own pool, and queries are routed to the correct pool
+based on the `database_name` argument passed to a tool. Single-database
+configuration (the `DB_HOST`/`DB_PORT`/... variables above) remains fully
+supported and unchanged.
 
 **Example Authentication Configuration:**
 This configuration uses external web authentication via GitHub or Google. If you have internal JWT authentication (desired for organizations who manage their own services), you can use the JWT provider instead.
@@ -348,8 +384,67 @@ export FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET="GOCSPX-..."
 
 ---
 
-## Testing
+## Testing & Quality
 
-- Tests are located in the `src/tests/` directory.
-- See `src/tests/README.md` for an overview.
-- Tests cover both standard SQL and vector/embedding tool operations.
+Tests live in `src/tests/` (see `src/tests/README.md`).
+
+**Unit tests — no database required.** The pool / `_execute_query` are mocked, so these run anywhere
+and fast. They guard the read-only query gateway: write-blocking, SQL-comment-bypass protection,
+parameter forwarding and result limiting.
+
+```bash
+uv run pytest src/tests/test_execute_query_unit.py src/tests/test_list_databases_unittest.py -v
+```
+
+**Integration & provider tests — require live infrastructure.** A configured MariaDB is needed; the
+embedding / vector-store tests additionally require an `EMBEDDING_PROVIDER`.
+
+```bash
+uv run pytest src/tests/ -v
+```
+
+---
+
+## Development & Quality
+
+This project uses [`ruff`](https://docs.astral.sh/ruff/) (lint + format),
+[`mypy`](https://mypy-lang.org/) (type-check) and [`pre-commit`](https://pre-commit.com/).
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs the lint/type gate plus the test suite
+against a MariaDB service container on every push and pull request.
+
+```bash
+uv run ruff check src/          # lint (add --fix to autofix)
+uv run ruff format src/         # format
+uv run mypy src/                # type-check
+uv run pre-commit install       # enable hooks (one-time)
+uv run pre-commit run --all-files
+```
+
+Ad-hoc database-exploration scripts live in `scripts/exploration/` and read **all** credentials from
+environment variables — never hardcode secrets (see `scripts/exploration/README.md`).
+
+---
+
+## Project Dashboards
+
+Self-contained HTML dashboards — **architecture, infrastructure, implementation status, tech stack,
+and testing** — live in [`docs/dashboards/`](docs/dashboards/). Open `docs/dashboards/index.html` in
+any browser; no build step is required. Diagrams render with Mermaid (vendored locally with an
+automatic CDN fallback).
+
+---
+
+## Project Status & Roadmap
+
+A six-phase modernization is underway (internal-tooling focus). **Phases 0 & 1 are complete.**
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 0 | Repo cleanup & secret hygiene | ✅ Done |
+| 1 | Tooling & CI — ruff, mypy, pre-commit, GitHub Actions, safety-net unit tests | ✅ Done |
+| 2 | Refactor `server.py` into `pool` / `query` / `tools` modules | ⬜ Planned |
+| 3 | DB driver: `asyncmy` → official `mariadb` Connector 2.0 (incl. `%s` → `?` placeholder change) | ⬜ Planned |
+| 4 | FastMCP `2.12` → `3.x` | ⬜ Planned |
+| 5 | Observability — OpenTelemetry, structured logs, richer `/health` | ⬜ Planned |
+
+See [`docs/dashboards/implementation-status.html`](docs/dashboards/implementation-status.html) for the full roadmap.
