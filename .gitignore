@@ -6,9 +6,26 @@ src/logs/*
 *.pyc
 *.pyo
 *.pyd
-.env
-uv.lock
 .DS_Store
+
+# Environment / secrets — never commit real credentials.
+# All .env variants are ignored; commit a .env.example with placeholders instead.
+.env
+.env.*
+!.env.example
+
+# Stray Windows device-name file produced by misdirected output redirection
+nul
+
+# Exploration script outputs (charts, dumps)
+department_distribution.png
+scripts/exploration/*.png
+
+# Vendored dashboard libraries (large; fetched on demand, CDN fallback in HTML)
+docs/dashboards/vendor/
+
+# Dependency lock (kept local for now; see CONTRIBUTING for rationale)
+uv.lock
 
 # Downloaded data files
 scripts/geography_data/
