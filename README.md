@@ -34,9 +34,18 @@ The MCP MariaDB Server exposes a set of tools for interacting with MariaDB datab
 
 ## Core Components
 
-- **server.py**: Main MCP server logic and tool definitions.
+The server logic is split by concern into focused mixins that compose into the
+`MariaDBServer` class (MRO: `MariaDBServer → PoolMixin → VectorToolsMixin →
+StandardToolsMixin → QueryMixin → ServerBase`):
+
+- **server.py**: `MariaDBServer` — composition + cross-cutting concerns only (MCP tool registration, the `/health` endpoint + metrics, the async run loop, and the CLI entry point).
+- **base.py**: `ServerBase` — the single `__init__` and all shared instance state (pools, metrics, flags, embedding semaphore). No DB logic.
+- **db_pool.py**: `PoolMixin` — connection-pool lifecycle (single + multi-database).
+- **query.py**: `QueryMixin` — the read-only query gateway (`_execute_query`) and schema/existence helpers.
+- **tools.py**: `StandardToolsMixin` — the standard SQL tools.
+- **vector_store.py**: `VectorToolsMixin` — the vector-store tools and the embedding-service singleton.
 - **config.py**: Loads configuration from environment and `.env` files.
-- **embeddings.py**: Handles embedding service integration (OpenAI).
+- **embeddings.py**: Handles embedding service integration (OpenAI, Gemini, HuggingFace).
 - **tests/**: Manual and automated test documentation and scripts.
 
 ---
@@ -436,13 +445,13 @@ automatic CDN fallback).
 
 ## Project Status & Roadmap
 
-A six-phase modernization is underway (internal-tooling focus). **Phases 0 & 1 are complete.**
+A six-phase modernization is underway (internal-tooling focus). **Phases 0, 1 & 2 are complete.**
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 0 | Repo cleanup & secret hygiene | ✅ Done |
 | 1 | Tooling & CI — ruff, mypy, pre-commit, GitHub Actions, safety-net unit tests | ✅ Done |
-| 2 | Refactor `server.py` into `pool` / `query` / `tools` modules | ⬜ Planned |
+| 2 | Refactor `server.py` into `base` / `db_pool` / `query` / `tools` / `vector_store` modules | ✅ Done |
 | 3 | DB driver: `asyncmy` → official `mariadb` Connector 2.0 (incl. `%s` → `?` placeholder change) | ⬜ Planned |
 | 4 | FastMCP `2.12` → `3.x` | ⬜ Planned |
 | 5 | Observability — OpenTelemetry, structured logs, richer `/health` | ⬜ Planned |

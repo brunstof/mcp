@@ -32,7 +32,7 @@
 
   <section class="section">
     <h2>1 · End-to-end request flow</h2>
-    <p class="sub">Source: <span class="mono">src/server.py</span> · <span class="mono">src/config.py</span> · <span class="mono">src/embeddings.py</span></p>
+    <p class="sub">Source (Phase 2 mixin split): <span class="mono">src/server.py</span> · <span class="mono">base.py</span> · <span class="mono">db_pool.py</span> · <span class="mono">query.py</span> · <span class="mono">tools.py</span> · <span class="mono">vector_store.py</span> · <span class="mono">config.py</span> · <span class="mono">embeddings.py</span></p>
     <div class="card diagram">
 <pre class="mermaid">
 flowchart TB
@@ -56,14 +56,14 @@ flowchart TB
     M2["TrustedHost · ALLOWED_HOSTS"]
   end
 
-  subgraph server["FastMCP · MariaDBServer"]
+  subgraph server["FastMCP · MariaDBServer · server.py"]
     direction TB
     REG["register_tools()"]
-    REG --> STD["Standard tools"]
-    REG -.->|"only if EMBEDDING_PROVIDER set"| VEC["Vector-store tools"]
+    REG --> STD["Standard tools<br/>tools.py"]
+    REG -.->|"only if EMBEDDING_PROVIDER set"| VEC["Vector-store tools<br/>vector_store.py"]
   end
 
-  subgraph gateway["Query gateway · _execute_query()"]
+  subgraph gateway["Query gateway · query.py · _execute_query()"]
     direction TB
     G1["strip SQL comments"] --> G2["read-only guard<br/>SELECT · SHOW · DESC · USE"]
     G2 --> G3["parameterized execute (%s)"]
@@ -72,7 +72,7 @@ flowchart TB
 
   subgraph data["Data layer"]
     direction TB
-    POOL["asyncmy pool(s)<br/>keyed by host:port"]
+    POOL["asyncmy pool(s) · db_pool.py<br/>keyed by host:port"]
     DB[("MariaDB 11.7+")]
     POOL --> DB
   end

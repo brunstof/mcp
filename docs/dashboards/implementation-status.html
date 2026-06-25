@@ -27,14 +27,14 @@
     <h1>Modernization roadmap</h1>
     <p>A risk-gated, six-phase plan to modernize the server for internal use. Cleanup and the CI
        safety net land first, so the two higher-risk migrations (database driver, FastMCP 3) run
-       against a solid base. <strong>Phases 0 and 1 are complete.</strong></p>
+       against a solid base. <strong>Phases 0, 1 and 2 are complete.</strong></p>
   </header>
 
   <section class="section">
     <div class="grid cols-4">
-      <div class="card metric"><span class="value green">2</span><span class="label">Phases complete</span></div>
-      <div class="card metric"><span class="value amber">4</span><span class="label">Phases remaining</span></div>
-      <div class="card metric"><span class="value green">8 / 8</span><span class="label">Phase 0+1 tasks done</span></div>
+      <div class="card metric"><span class="value green">3</span><span class="label">Phases complete</span></div>
+      <div class="card metric"><span class="value amber">3</span><span class="label">Phases remaining</span></div>
+      <div class="card metric"><span class="value green">1 → 6</span><span class="label">server.py split into modules (Phase 2)</span></div>
       <div class="card metric"><span class="value red">%s → ?</span><span class="label">Top migration risk (Phase 3)</span></div>
     </div>
   </section>
@@ -56,8 +56,8 @@ flowchart LR
 
   classDef done fill:#132d1c,stroke:#3fb950,color:#e6edf3;
   classDef todo fill:#2a2018,stroke:#d29922,color:#e6edf3;
-  class P0,P1 done;
-  class P2,P3,P4,P5 todo;
+  class P0,P1,P2 done;
+  class P3,P4,P5 todo;
 </pre>
     </div>
     <div class="legend">
@@ -79,8 +79,8 @@ gantt
   Phase 0 Cleanup and secrets      :done,   p0, 2026-06-25, 1d
   Phase 1 Tooling and CI           :done,   p1, 2026-06-25, 1d
   section Migrations
-  Phase 2 Refactor server.py       :active, p2, after p1, 3d
-  Phase 3 Driver migration         :        p3, after p2, 4d
+  Phase 2 Refactor server.py       :done,   p2, 2026-06-25, 1d
+  Phase 3 Driver migration         :active, p3, after p2, 4d
   Phase 4 FastMCP 3 upgrade        :        p4, after p3, 3d
   section Operability
   Phase 5 Observability            :        p5, after p4, 2d
@@ -89,7 +89,7 @@ gantt
   </section>
 
   <section class="section">
-    <h2>3 · Completed work — Phases 0 &amp; 1</h2>
+    <h2>3 · Completed work — Phases 0, 1 &amp; 2</h2>
     <div class="card">
       <table>
         <thead><tr><th>Phase</th><th>Task</th><th>Outcome</th><th>Status</th></tr></thead>
@@ -102,6 +102,9 @@ gantt
           <tr><td>1</td><td>pre-commit hooks</td><td>ruff + mypy + secret detection</td><td><span class="badge done">done</span></td></tr>
           <tr><td>1</td><td>GitHub Actions CI</td><td>Lint/type job + MariaDB-service test job</td><td><span class="badge done">done</span></td></tr>
           <tr><td>1</td><td>Safety-net unit tests</td><td><code>test_execute_query_unit.py</code> — 11 mocked-pool tests</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>2</td><td>Split <code>server.py</code> by concern</td><td>1,255-LOC monolith → <code>base</code>/<code>db_pool</code>/<code>query</code>/<code>tools</code>/<code>vector_store</code> mixins (server.py ≈ 280 LOC)</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>2</td><td>Preserve public surface</td><td>Both <code>from server import</code> &amp; <code>from src.server import</code> intact; MRO <code>MariaDBServer → PoolMixin → VectorToolsMixin → StandardToolsMixin → QueryMixin → ServerBase</code></td><td><span class="badge done">done</span></td></tr>
+          <tr><td>2</td><td>Zero-regression gate</td><td>ruff + mypy (15 files) green; 14 DB-free tests pass; full suite collects (47)</td><td><span class="badge done">done</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -113,8 +116,7 @@ gantt
       <table>
         <thead><tr><th>Phase</th><th>Scope</th><th>Decision / risk</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>2</td><td>Split 1,157-LOC <code>server.py</code> into <code>pool</code> / <code>query</code> / <code>tools</code> modules</td><td>Isolates blast radius for migrations</td><td><span class="badge todo">planned</span></td></tr>
-          <tr><td>3</td><td>asyncmy → official <code>mariadb</code> Connector 2.0 (native async pool)</td><td><span class="badge risk">%s → ? placeholder rewrite</span> across all queries</td><td><span class="badge todo">planned</span></td></tr>
+          <tr><td>3</td><td>asyncmy → official <code>mariadb</code> Connector 2.0 (native async pool)</td><td><span class="badge risk">%s → ? placeholder rewrite</span> across all queries — isolated to <code>query.py</code> + <code>vector_store.py</code> after Phase 2</td><td><span class="badge todo">planned</span></td></tr>
           <tr><td>4</td><td>FastMCP <code>2.12.1</code> → <code>3.x</code></td><td>Drop <code>[websockets]</code>; move host/port to <code>.run()</code></td><td><span class="badge todo">planned</span></td></tr>
           <tr><td>5</td><td>OpenTelemetry traces/metrics, structured logs, richer <code>/health</code></td><td>Leverages FastMCP 3 built-in OTel</td><td><span class="badge todo">planned</span></td></tr>
         </tbody>
