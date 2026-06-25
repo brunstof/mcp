@@ -1,0 +1,33 @@
+# Pre-commit hooks for the MariaDB MCP server.
+# Install once with:  uv run pre-commit install
+# Run on demand with: uv run pre-commit run --all-files
+default_language_version:
+  python: python3.13
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: detect-private-key  # guards against committing credentials
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (via uv)
+        entry: uv run mypy src/
+        language: system
+        types: [python]
+        pass_filenames: false

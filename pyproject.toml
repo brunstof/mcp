@@ -18,8 +18,44 @@ dependencies = [
 dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["src/tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+# Exploration scripts are throwaway and depend on optional libs (matplotlib,
+# pandas) and dynamic imports — keep them out of the lint gate.
+extend-exclude = ["scripts/exploration", ".venv"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear, C4: comprehensions
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+ignore = [
+    "E501",  # line length is handled by the formatter
+    "B008",  # function calls in argument defaults (common in FastMCP/Starlette)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/tests/*" = ["E402"]  # tests manipulate sys.path before importing
+# These modules intentionally import after module-level bootstrap (config/
+# logging setup, embedding-service init) — E402 is expected, not a defect.
+"src/server.py" = ["E402"]
+"src/embeddings.py" = ["E402"]
+"scripts/populate_geography.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+# Pragmatic settings for an existing codebase; tighten incrementally.
+# warn_unused_ignores is intentionally OFF: several `# type: ignore` comments
+# guard optional-dependency fallbacks (openai/google-genai) that are absent in
+# some environments, so the ignores are needed there even if unused here.
+warn_redundant_casts = true
+exclude = ["scripts/exploration", "\\.venv"]
