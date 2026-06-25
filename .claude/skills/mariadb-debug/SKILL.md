@@ -7,22 +7,43 @@ description: Debug MariaDB MCP server issues, analyze connection pool problems, 
 
 ## Key Files to Check
 
-1. **src/server.py** - Main MCP server and tool definitions
-   - Connection pool initialization (`initialize_pool`)
-   - Tool registration (`register_tools`)
-   - Query execution (`_execute_query`)
+As of Phase 2, `MariaDBServer` is split by concern into mixins (MRO:
+`MariaDBServer → PoolMixin → VectorToolsMixin → StandardToolsMixin → QueryMixin → ServerBase`).
+Pick the file by the symptom:
 
-2. **src/config.py** - Configuration loading
+1. **src/server.py** - Composition + cross-cutting concerns
+   - Tool registration (`register_tools`)
+   - `/health` endpoint + metrics (`get_health`, `_health_endpoint`)
+   - Async run loop (`run_async_server`) and CLI entry point
+
+2. **src/base.py** - `ServerBase`: the single `__init__` and all shared state
+   (`pool`, `pools`, `_metrics`, `is_read_only`, `_embedding_semaphore`, `_start_time`)
+
+3. **src/db_pool.py** - `PoolMixin`: connection-pool lifecycle
+   (`initialize_pool`, `initialize_multiple_pools`, `_warmup_pool`, `close_pool`)
+
+4. **src/query.py** - `QueryMixin`: the query gateway (`_execute_query`) and
+   existence helpers (`_database_exists`, `_table_exists`, `_is_vector_store`).
+   Read-only enforcement, SQL-comment stripping, and result limiting live here.
+
+5. **src/tools.py** - `StandardToolsMixin`: standard SQL tools
+   (`list_databases`, `list_tables`, `get_table_schema`,
+   `get_table_schema_with_relations`, `execute_sql`, `create_database`)
+
+6. **src/vector_store.py** - `VectorToolsMixin`: vector tools + the
+   `embedding_service` singleton
+
+7. **src/config.py** - Configuration loading
    - Environment variables validation
    - Logging setup
    - Embedding provider configuration
 
-3. **src/embeddings.py** - Embedding service
+8. **src/embeddings.py** - Embedding service
    - Provider initialization (OpenAI, Gemini, HuggingFace)
    - Model dimension lookup
    - Embedding generation
 
-4. **logs/mcp_server.log** - Server logs
+9. **logs/mcp_server.log** - Server logs
 
 ## Common Issues & Solutions
 
