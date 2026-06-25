@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Implementation Status — MariaDB MCP Server</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="infrastructure.html">Infrastructure</a>
+      <a href="implementation-status.html" class="active">Status</a>
+      <a href="tech-stack.html">Tech Stack</a>
+      <a href="testing.html">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Implementation Status</div>
+    <h1>Modernization roadmap</h1>
+    <p>A risk-gated, six-phase plan to modernize the server for internal use. Cleanup and the CI
+       safety net land first, so the two higher-risk migrations (database driver, FastMCP 3) run
+       against a solid base. <strong>Phases 0 and 1 are complete.</strong></p>
+  </header>
+
+  <section class="section">
+    <div class="grid cols-4">
+      <div class="card metric"><span class="value green">2</span><span class="label">Phases complete</span></div>
+      <div class="card metric"><span class="value amber">4</span><span class="label">Phases remaining</span></div>
+      <div class="card metric"><span class="value green">8 / 8</span><span class="label">Phase 0+1 tasks done</span></div>
+      <div class="card metric"><span class="value red">%s → ?</span><span class="label">Top migration risk (Phase 3)</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>1 · Phase dependency flow</h2>
+    <p class="sub">Ordering is risk-gated: each migration is protected by the work before it.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  P0["Phase 0<br/>Cleanup &amp; secrets"]
+  P1["Phase 1<br/>Tooling &amp; CI"]
+  P2["Phase 2<br/>Refactor server.py"]
+  P3["Phase 3<br/>Driver: asyncmy → mariadb 2.0"]
+  P4["Phase 4<br/>FastMCP 2.12 → 3.x"]
+  P5["Phase 5<br/>Observability"]
+
+  P0 --> P1 --> P2 --> P3 --> P4 --> P5
+
+  classDef done fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  classDef todo fill:#2a2018,stroke:#d29922,color:#e6edf3;
+  class P0,P1 done;
+  class P2,P3,P4,P5 todo;
+</pre>
+    </div>
+    <div class="legend">
+      <span><i style="background:#3fb950"></i> Complete</span>
+      <span><i style="background:#d29922"></i> Planned</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2 · Timeline</h2>
+    <p class="sub">Relative sequencing of the roadmap (illustrative durations).</p>
+    <div class="card diagram">
+<pre class="mermaid">
+gantt
+  title Modernization roadmap
+  dateFormat YYYY-MM-DD
+  axisFormat %b %d
+  section Foundations
+  Phase 0 Cleanup and secrets      :done,   p0, 2026-06-25, 1d
+  Phase 1 Tooling and CI           :done,   p1, 2026-06-25, 1d
+  section Migrations
+  Phase 2 Refactor server.py       :active, p2, after p1, 3d
+  Phase 3 Driver migration         :        p3, after p2, 4d
+  Phase 4 FastMCP 3 upgrade        :        p4, after p3, 3d
+  section Operability
+  Phase 5 Observability            :        p5, after p4, 2d
+</pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3 · Completed work — Phases 0 &amp; 1</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Phase</th><th>Task</th><th>Outcome</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>Remove stray files</td><td>Deleted <code>nul</code> + unused <code>src/main.py</code></td><td><span class="badge done">done</span></td></tr>
+          <tr><td>0</td><td>Sanitize loose scripts</td><td>12 scripts → <code>scripts/exploration/</code>, credentials moved to env</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>0</td><td>Update .gitignore</td><td><code>.env*</code>, <code>nul</code>, exploration outputs ignored</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>0</td><td>Fold multi-DB docs</td><td>Merged into <code>README.md</code>, placeholders only</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>1</td><td>ruff + mypy gate</td><td>Configured &amp; baselined — gate is green</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>1</td><td>pre-commit hooks</td><td>ruff + mypy + secret detection</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>1</td><td>GitHub Actions CI</td><td>Lint/type job + MariaDB-service test job</td><td><span class="badge done">done</span></td></tr>
+          <tr><td>1</td><td>Safety-net unit tests</td><td><code>test_execute_query_unit.py</code> — 11 mocked-pool tests</td><td><span class="badge done">done</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>4 · Remaining phases &amp; key decisions</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Phase</th><th>Scope</th><th>Decision / risk</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>2</td><td>Split 1,157-LOC <code>server.py</code> into <code>pool</code> / <code>query</code> / <code>tools</code> modules</td><td>Isolates blast radius for migrations</td><td><span class="badge todo">planned</span></td></tr>
+          <tr><td>3</td><td>asyncmy → official <code>mariadb</code> Connector 2.0 (native async pool)</td><td><span class="badge risk">%s → ? placeholder rewrite</span> across all queries</td><td><span class="badge todo">planned</span></td></tr>
+          <tr><td>4</td><td>FastMCP <code>2.12.1</code> → <code>3.x</code></td><td>Drop <code>[websockets]</code>; move host/port to <code>.run()</code></td><td><span class="badge todo">planned</span></td></tr>
+          <tr><td>5</td><td>OpenTelemetry traces/metrics, structured logs, richer <code>/health</code></td><td>Leverages FastMCP 3 built-in OTel</td><td><span class="badge todo">planned</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="page">Implementation status · MariaDB MCP Server · diagrams via Mermaid 11.</footer>
+</div>
+
+<script src="vendor/mermaid.min.js"></script>
+<script>if(!window.mermaid){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/scr'+'ipt>');}</script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#2d3645',
+      lineColor: '#4aa8ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#11161d',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px'
+    }
+  });
+  document.addEventListener('DOMContentLoaded', async function () {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      try {
+        const out = document.createElement('div');
+        out.className = 'mermaid-out';
+        const res = await mermaid.render('mdiag-' + i, el.textContent);
+        out.innerHTML = res.svg;
+        el.replaceWith(out);
+      } catch (e) {
+        const err = document.createElement('div');
+        err.className = 'mermaid-error';
+        err.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+        el.replaceWith(err);
+      }
+    }
+  });
+</script>
+</body>
+</html>

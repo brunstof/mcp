@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tech Stack — MariaDB MCP Server</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="infrastructure.html">Infrastructure</a>
+      <a href="implementation-status.html">Status</a>
+      <a href="tech-stack.html" class="active">Tech Stack</a>
+      <a href="testing.html">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Tech Stack</div>
+    <h1>Technology layers &amp; versions</h1>
+    <p>The stack is modern Python-async throughout, managed with <span class="mono">uv</span>. Two components
+       are pinned for an upcoming upgrade — the MCP framework and the database driver — shown below with
+       their current and target versions.</p>
+  </header>
+
+  <section class="section">
+    <h2>1 · Layered stack</h2>
+    <p class="sub">From developer tooling at the top down to the database engine.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph dev["Dev &amp; CI tooling"]
+    direction LR
+    UV["uv<br/>packaging + lock"]
+    RUFF["ruff<br/>lint + format"]
+    MYPY["mypy<br/>type-check"]
+    PYT["pytest + cov"]
+    PC["pre-commit"]
+    GHA["GitHub Actions"]
+  end
+
+  subgraph app["Application framework"]
+    direction LR
+    FMCP["FastMCP 2.12.1<br/>→ 3.x planned"]
+    STAR["Starlette<br/>CORS · TrustedHost"]
+    ANYIO["anyio"]
+  end
+
+  subgraph emb["Embeddings (optional)"]
+    direction LR
+    OAI["openai"]
+    GEM["google-genai"]
+    ST["sentence-transformers"]
+    TOK["tokenizers"]
+  end
+
+  subgraph drv["Data access"]
+    direction LR
+    ASY["asyncmy 0.2.10<br/>→ mariadb 2.0 planned"]
+  end
+
+  subgraph rt["Runtime &amp; engine"]
+    direction LR
+    PY["Python 3.13+"]
+    MDB[("MariaDB 11.7+<br/>VECTOR · UUID_v7")]
+  end
+
+  dev --> app --> emb
+  app --> drv --> rt
+
+  classDef plan fill:#2a2018,stroke:#d29922,color:#e6edf3;
+  classDef engine fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  class FMCP,ASY plan;
+  class PY,MDB engine;
+</pre>
+    </div>
+    <div class="legend">
+      <span><i style="background:#d29922"></i> Pinned · upgrade planned</span>
+      <span><i style="background:#3fb950"></i> Runtime / engine</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2 · Versions — current vs target</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Component</th><th>Current</th><th>Target</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td><td><code>3.13+</code></td><td>—</td><td>Current</td></tr>
+          <tr><td>MariaDB</td><td><code>11.7+</code></td><td>—</td><td>Required for VECTOR / UUID_v7()</td></tr>
+          <tr><td>FastMCP</td><td><code>2.12.1</code></td><td><code>3.4.x</code></td><td>OpenTelemetry, JWT/OAuth, tool versioning</td></tr>
+          <tr><td>DB driver</td><td><code>asyncmy 0.2.10</code></td><td><code>mariadb 2.0</code></td><td>Official, faster, no MSVC build on Windows</td></tr>
+          <tr><td>Package manager</td><td><code>uv</code></td><td>—</td><td>Current</td></tr>
+          <tr><td>Lint / format</td><td><code>ruff ≥ 0.9</code></td><td>—</td><td>Added in Phase 1</td></tr>
+          <tr><td>Type checker</td><td><code>mypy ≥ 1.19</code></td><td>—</td><td>Gate is green</td></tr>
+          <tr><td>Test runner</td><td><code>pytest ≥ 9</code> + cov</td><td>—</td><td>Added pytest-cov in Phase 1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3 · Embedding providers &amp; dimensions</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Provider</th><th>Example model</th><th>Vector dim</th><th>Async</th></tr></thead>
+        <tbody>
+          <tr><td>OpenAI</td><td><code>text-embedding-3-small</code> / <code>-large</code></td><td>1536 / 3072</td><td>native</td></tr>
+          <tr><td>Gemini</td><td><code>text-embedding-004</code></td><td>768</td><td>via <code>asyncio.to_thread()</code></td></tr>
+          <tr><td>HuggingFace</td><td><code>BAAI/bge-m3</code></td><td>1024 (varies)</td><td>pre-loaded at init</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="page">Tech stack dashboard · MariaDB MCP Server · diagrams via Mermaid 11.</footer>
+</div>
+
+<script src="vendor/mermaid.min.js"></script>
+<script>if(!window.mermaid){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/scr'+'ipt>');}</script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#2d3645',
+      lineColor: '#4aa8ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#11161d',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px'
+    }
+  });
+  document.addEventListener('DOMContentLoaded', async function () {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      try {
+        const out = document.createElement('div');
+        out.className = 'mermaid-out';
+        const res = await mermaid.render('mdiag-' + i, el.textContent);
+        out.innerHTML = res.svg;
+        el.replaceWith(out);
+      } catch (e) {
+        const err = document.createElement('div');
+        err.className = 'mermaid-error';
+        err.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+        el.replaceWith(err);
+      }
+    }
+  });
+</script>
+</body>
+</html>

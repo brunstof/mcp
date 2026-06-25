@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Architecture — MariaDB MCP Server</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html" class="active">Architecture</a>
+      <a href="infrastructure.html">Infrastructure</a>
+      <a href="implementation-status.html">Status</a>
+      <a href="tech-stack.html">Tech Stack</a>
+      <a href="testing.html">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Architecture</div>
+    <h1>How a request flows through the server</h1>
+    <p>An AI client speaks MCP over one of three transports. FastMCP routes the call to a
+       registered tool, which passes through the read-only query gateway before reaching the
+       async connection pool and MariaDB. Vector tools additionally call the embedding service.</p>
+  </header>
+
+  <section class="section">
+    <h2>1 · End-to-end request flow</h2>
+    <p class="sub">Source: <span class="mono">src/server.py</span> · <span class="mono">src/config.py</span> · <span class="mono">src/embeddings.py</span></p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph clients["AI Clients"]
+    direction LR
+    C1["Claude Desktop"]
+    C2["Cursor / Windsurf"]
+    C3["VS Code / SDK"]
+  end
+
+  subgraph transport["Transport (anyio)"]
+    direction LR
+    T1["stdio (default)"]
+    T2["SSE"]
+    T3["streamable HTTP"]
+  end
+
+  subgraph mw["Starlette middleware — HTTP/SSE only"]
+    direction LR
+    M1["CORS · ALLOWED_ORIGINS"]
+    M2["TrustedHost · ALLOWED_HOSTS"]
+  end
+
+  subgraph server["FastMCP · MariaDBServer"]
+    direction TB
+    REG["register_tools()"]
+    REG --> STD["Standard tools"]
+    REG -.->|"only if EMBEDDING_PROVIDER set"| VEC["Vector-store tools"]
+  end
+
+  subgraph gateway["Query gateway · _execute_query()"]
+    direction TB
+    G1["strip SQL comments"] --> G2["read-only guard<br/>SELECT · SHOW · DESC · USE"]
+    G2 --> G3["parameterized execute (%s)"]
+    G3 --> G4["limit to MCP_MAX_RESULTS"]
+  end
+
+  subgraph data["Data layer"]
+    direction TB
+    POOL["asyncmy pool(s)<br/>keyed by host:port"]
+    DB[("MariaDB 11.7+")]
+    POOL --> DB
+  end
+
+  subgraph emb["EmbeddingService"]
+    direction LR
+    E1["OpenAI"]
+    E2["Gemini"]
+    E3["HuggingFace"]
+  end
+
+  CFG["config.py<br/>env · .env · logging"]
+  HEALTH["/health · metrics"]
+
+  clients --> transport --> mw --> server
+  STD --> gateway
+  VEC --> gateway
+  VEC -->|"embed query / docs"| emb
+  gateway --> POOL
+  CFG -.->|"bootstraps"| server
+  server --> HEALTH
+
+  classDef done fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  classDef guard fill:#2a2018,stroke:#d29922,color:#e6edf3;
+  classDef store fill:#10243a,stroke:#4aa8ff,color:#e6edf3;
+  class gateway,G1,G2,G3,G4 guard;
+  class data,POOL,DB store;
+</pre>
+    </div>
+    <div class="legend">
+      <span><i style="background:#d29922"></i> Security gateway (read-only + comment stripping)</span>
+      <span><i style="background:#4aa8ff"></i> Data / connection pool</span>
+      <span><i style="background:#7c5cff"></i> Optional vector path</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2 · MCP tool catalog</h2>
+    <p class="sub">11 tools — vector tools are registered only when an embedding provider is configured.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  ROOT["MariaDBServer.register_tools()"]
+
+  subgraph standard["Standard — always registered"]
+    direction TB
+    A1["list_databases"]
+    A2["list_tables"]
+    A3["get_table_schema"]
+    A4["get_table_schema_with_relations"]
+    A5["execute_sql"]
+    A6["create_database"]
+  end
+
+  subgraph vector["Vector store — requires EMBEDDING_PROVIDER"]
+    direction TB
+    B1["create_vector_store"]
+    B2["delete_vector_store"]
+    B3["list_vector_stores"]
+    B4["insert_docs_vector_store"]
+    B5["search_vector_store"]
+  end
+
+  ROOT --> standard
+  ROOT -.->|conditional| vector
+
+  classDef opt fill:#1a1530,stroke:#7c5cff,color:#e6edf3;
+  class vector,B1,B2,B3,B4,B5 opt;
+</pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3 · Vector search — request sequence</h2>
+    <p class="sub">How <span class="mono">search_vector_store</span> turns a natural-language query into a ranked result set.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant AI as AI Client
+  participant MCP as FastMCP / MariaDBServer
+  participant EMB as EmbeddingService
+  participant POOL as asyncmy Pool
+  participant DB as MariaDB
+
+  AI->>MCP: search_vector_store(db, store, user_query)
+  MCP->>EMB: embed(user_query)
+  EMB-->>MCP: query vector (e.g. 1536 / 768 / 1024-dim)
+  MCP->>POOL: acquire connection
+  POOL-->>MCP: connection
+  MCP->>DB: SELECT ... ORDER BY VEC_DISTANCE(embedding, ?) LIMIT k
+  DB-->>MCP: nearest documents + metadata
+  MCP-->>AI: ranked results (JSON)
+</pre>
+    </div>
+  </section>
+
+  <footer class="page">Architecture dashboard · MariaDB MCP Server · diagrams via Mermaid 11.</footer>
+</div>
+
+<script src="vendor/mermaid.min.js"></script>
+<script>if(!window.mermaid){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/scr'+'ipt>');}</script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#2d3645',
+      lineColor: '#4aa8ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#11161d',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px'
+    }
+  });
+  document.addEventListener('DOMContentLoaded', async function () {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      try {
+        const out = document.createElement('div');
+        out.className = 'mermaid-out';
+        const res = await mermaid.render('mdiag-' + i, el.textContent);
+        out.innerHTML = res.svg;
+        el.replaceWith(out);
+      } catch (e) {
+        const err = document.createElement('div');
+        err.className = 'mermaid-error';
+        err.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+        el.replaceWith(err);
+      }
+    }
+  });
+</script>
+</body>
+</html>

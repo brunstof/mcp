@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MariaDB MCP Server — Project Dashboards</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html" class="active">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="infrastructure.html">Infrastructure</a>
+      <a href="implementation-status.html">Status</a>
+      <a href="tech-stack.html">Tech Stack</a>
+      <a href="testing.html">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Project Dashboards</div>
+    <h1>MariaDB MCP Server</h1>
+    <p>A Model Context Protocol server giving AI assistants a safe, read-only-by-default
+       interface to MariaDB — standard SQL plus optional vector / embedding search.
+       These dashboards visualise the architecture, infrastructure, delivery status,
+       technology stack and test strategy.</p>
+  </header>
+
+  <section class="section">
+    <div class="grid cols-4">
+      <div class="card metric"><span class="value green">2 / 6</span><span class="label">Modernization phases complete</span></div>
+      <div class="card metric"><span class="value accent">11</span><span class="label">MCP tools (6 standard · 5 vector)</span></div>
+      <div class="card metric"><span class="value violet">3</span><span class="label">Embedding providers supported</span></div>
+      <div class="card metric"><span class="value green">14 ✓</span><span class="label">DB-free unit tests passing</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Explore the dashboards</h2>
+    <p class="sub">Each view focuses on one concern and is built around live Mermaid diagrams.</p>
+    <div class="navcards">
+      <a class="navcard" href="architecture.html">
+        <div class="ic">🏗️</div><h3>Architecture</h3>
+        <p>Request flow from AI client through FastMCP, the tool layer, query gateway and connection pool.</p>
+      </a>
+      <a class="navcard" href="infrastructure.html">
+        <div class="ic">🗄️</div><h3>Infrastructure</h3>
+        <p>Docker topology, internal MariaDB servers and the <code>kbme_statistic</code> data pipeline.</p>
+      </a>
+      <a class="navcard" href="implementation-status.html">
+        <div class="ic">📊</div><h3>Implementation Status</h3>
+        <p>The 6-phase modernization roadmap — what is done, what is next, and the key risks.</p>
+      </a>
+      <a class="navcard" href="tech-stack.html">
+        <div class="ic">🧰</div><h3>Tech Stack</h3>
+        <p>Layered technology map with current versions and planned upgrade targets.</p>
+      </a>
+      <a class="navcard" href="testing.html">
+        <div class="ic">🧪</div><h3>Testing &amp; Validation</h3>
+        <p>Test pyramid, the CI quality gate and coverage of the safety-net suite.</p>
+      </a>
+      <a class="navcard" href="https://gofastmcp.com" target="_blank" rel="noopener">
+        <div class="ic">🔗</div><h3>FastMCP Docs</h3>
+        <p>Reference for the MCP framework powering this server. Opens externally.</p>
+      </a>
+    </div>
+  </section>
+
+  <footer class="page">
+    Generated 2026-06-25 · Status reflects modernization Phases 0 &amp; 1 (complete). Diagrams render with Mermaid 11.
+  </footer>
+</div>
+</body>
+</html>

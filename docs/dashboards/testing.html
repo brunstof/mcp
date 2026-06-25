@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Testing &amp; Validation — MariaDB MCP Server</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="infrastructure.html">Infrastructure</a>
+      <a href="implementation-status.html">Status</a>
+      <a href="tech-stack.html">Tech Stack</a>
+      <a href="testing.html" class="active">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Testing &amp; Validation</div>
+    <h1>Test strategy &amp; CI quality gate</h1>
+    <p>Fast, database-free unit tests guard the security-critical query gateway and run everywhere.
+       Integration and provider tests need live infrastructure and run locally or against a CI
+       service container. Every push is gated by lint, type-check and the test suite.</p>
+  </header>
+
+  <section class="section">
+    <div class="grid cols-4">
+      <div class="card metric"><span class="value green">14 ✓</span><span class="label">DB-free unit tests passing</span></div>
+      <div class="card metric"><span class="value accent">11</span><span class="label">New safety-net tests (Phase 1)</span></div>
+      <div class="card metric"><span class="value">5</span><span class="label">Test modules</span></div>
+      <div class="card metric"><span class="value violet">3</span><span class="label">CI gate steps (lint · types · tests)</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>1 · Test pyramid</h2>
+    <p class="sub">Unit tests mock the pool / <span class="mono">_execute_query</span>; higher tiers need real services.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph t3["Provider tests — keys / network"]
+    P1["test_embedding_service.py<br/>OpenAI · Gemini · HuggingFace"]
+  end
+  subgraph t2["Integration — live MariaDB"]
+    I1["test_mcp_server.py<br/>tools end-to-end via FastMCP client"]
+  end
+  subgraph t1["Unit — no database (mocked)"]
+    U1["test_execute_query_unit.py<br/>read-only · comment-bypass · params"]
+    U2["test_list_databases_unittest.py<br/>mocked _execute_query"]
+  end
+
+  t1 --> t2 --> t3
+
+  classDef base fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  classDef mid fill:#10243a,stroke:#4aa8ff,color:#e6edf3;
+  classDef top fill:#1a1530,stroke:#7c5cff,color:#e6edf3;
+  class t1,U1,U2 base;
+  class t2,I1 mid;
+  class t3,P1 top;
+</pre>
+    </div>
+    <div class="legend">
+      <span><i style="background:#3fb950"></i> Runs in CI on every push</span>
+      <span><i style="background:#4aa8ff"></i> CI w/ MariaDB service</span>
+      <span><i style="background:#7c5cff"></i> Local only (keys/models)</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2 · CI quality gate</h2>
+    <p class="sub">Source: <span class="mono">.github/workflows/ci.yml</span> — two parallel jobs.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  PUSH["push / PR"] --> Q
+  PUSH --> T
+
+  subgraph Q["Job: quality"]
+    direction TB
+    Q1["ruff check"] --> Q2["ruff format --check"] --> Q3["mypy"]
+  end
+
+  subgraph T["Job: test (MariaDB 11.8 service)"]
+    direction TB
+    T1["uv sync"] --> T2["pytest unit + integration<br/>-k 'not vector'"] --> T3["coverage report"]
+  end
+
+  Q --> GATE{"all green?"}
+  T --> GATE
+  GATE -->|yes| OK["✓ merge-ready"]
+  GATE -->|no| FAIL["✗ blocked"]
+
+  classDef ok fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  classDef bad fill:#2a1518,stroke:#f85149,color:#e6edf3;
+  class OK ok;
+  class FAIL bad;
+</pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3 · What the safety-net suite locks down</h2>
+    <p class="sub">These assertions protect the Phase 3 driver migration (<span class="mono">%s → ?</span> placeholder change).</p>
+    <div class="card">
+      <table>
+        <thead><tr><th>Guarantee</th><th>Why it matters</th><th>Tests</th></tr></thead>
+        <tbody>
+          <tr><td>Read-only mode blocks writes</td><td>INSERT/UPDATE/DELETE/DROP rejected with <code>PermissionError</code></td><td><span class="badge done">4</span></td></tr>
+          <tr><td>SQL-comment bypass blocked</td><td><code>-- </code> and <code>/* */</code> cannot smuggle writes past the prefix check</td><td><span class="badge done">2</span></td></tr>
+          <tr><td>Parameters forwarded unchanged</td><td>Catches a broken placeholder rewrite during driver migration</td><td><span class="badge done">1</span></td></tr>
+          <tr><td>Allowed read prefixes pass</td><td>SELECT / SHOW / DESC / USE reach execution</td><td><span class="badge done">1</span></td></tr>
+          <tr><td>Result limiting</td><td>Respects <code>MCP_MAX_RESULTS</code>; honours <code>limit_results=False</code></td><td><span class="badge done">2</span></td></tr>
+          <tr><td>Pool / DB-switch behaviour</td><td>Missing pool raises; <code>USE `db`</code> issued first</td><td><span class="badge done">2</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>4 · Run it yourself</h2>
+    <div class="card">
+      <p class="note" style="margin:0 0 8px">Database-free unit tests (fast, no setup):</p>
+      <p class="mono" style="margin:0 0 16px">uv run pytest src/tests/test_execute_query_unit.py src/tests/test_list_databases_unittest.py -v</p>
+      <p class="note" style="margin:0 0 8px">Full suite (requires live MariaDB with configured .env):</p>
+      <p class="mono" style="margin:0">uv run pytest src/tests/ -v</p>
+    </div>
+  </section>
+
+  <footer class="page">Testing &amp; validation dashboard · MariaDB MCP Server · diagrams via Mermaid 11.</footer>
+</div>
+
+<script src="vendor/mermaid.min.js"></script>
+<script>if(!window.mermaid){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/scr'+'ipt>');}</script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#2d3645',
+      lineColor: '#4aa8ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#11161d',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px'
+    }
+  });
+  document.addEventListener('DOMContentLoaded', async function () {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      try {
+        const out = document.createElement('div');
+        out.className = 'mermaid-out';
+        const res = await mermaid.render('mdiag-' + i, el.textContent);
+        out.innerHTML = res.svg;
+        el.replaceWith(out);
+      } catch (e) {
+        const err = document.createElement('div');
+        err.className = 'mermaid-error';
+        err.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+        el.replaceWith(err);
+      }
+    }
+  });
+</script>
+</body>
+</html>

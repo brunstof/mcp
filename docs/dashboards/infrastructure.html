@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Infrastructure — MariaDB MCP Server</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span> MariaDB MCP Server</div>
+    <nav class="navlinks">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="infrastructure.html" class="active">Infrastructure</a>
+      <a href="implementation-status.html">Status</a>
+      <a href="tech-stack.html">Tech Stack</a>
+      <a href="testing.html">Testing</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">Infrastructure</div>
+    <h1>Deployment topology &amp; data sources</h1>
+    <p>The server ships as a Docker Compose stack for local use and connects to several internal
+       MariaDB servers in operation. One key downstream dataset, <span class="mono">kbme_statistic</span>,
+       is refreshed daily from raw KBE logs joined with Active-Directory user snapshots.</p>
+  </header>
+
+  <section class="section">
+    <div class="grid cols-4">
+      <div class="card metric"><span class="value accent">2</span><span class="label">Containers in compose stack</span></div>
+      <div class="card metric"><span class="value">3</span><span class="label">MariaDB servers reached</span></div>
+      <div class="card metric"><span class="value">9001</span><span class="label">MCP service port (SSE/HTTP)</span></div>
+      <div class="card metric"><span class="value amber">daily</span><span class="label">kbme_statistic refresh cadence</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>1 · Docker Compose stack</h2>
+    <p class="sub">Source: <span class="mono">docker-compose.yml</span> · both services health-checked on a private bridge network.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph host["Docker host"]
+    subgraph net["mcp-network (bridge)"]
+      direction TB
+      MCP["mariadb-mcp<br/>FastMCP server<br/>port 9001 · TCP healthcheck"]
+      MDB[("mariadb 11.x<br/>port 3306<br/>healthcheck: mariadb-admin ping")]
+      MCP -->|"asyncmy pool"| MDB
+    end
+  end
+  CLIENT["AI client / browser"] -->|"SSE · HTTP :9001"| MCP
+  VOL[("named volume<br/>db data")] --- MDB
+
+  classDef svc fill:#10243a,stroke:#4aa8ff,color:#e6edf3;
+  classDef db fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  class MCP svc;
+  class MDB,VOL db;
+</pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2 · Internal MariaDB server map</h2>
+    <p class="sub">Servers reached by the MCP server and the exploration scripts (<span class="mono">scripts/exploration/</span>).</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart TB
+  MCP["MariaDB MCP Server<br/>multi-pool · keyed by host:port"]
+
+  subgraph s1["cdcpilms693 : 3320"]
+    direction TB
+    D11["kbme_db"]
+    D12["kbme_db_stats"]
+    D13["kbelog_db"]
+    D14["matgrade"]
+  end
+
+  subgraph s2["edecdems015 : 3399"]
+    direction TB
+    D21["ad_service<br/>adusers · ManagerEmail"]
+    D22["kbme_statistic"]
+  end
+
+  subgraph s3["localhost / mariadb : 3306"]
+    direction TB
+    D31["demo (dev container)"]
+  end
+
+  MCP --> s1
+  MCP --> s2
+  MCP --> s3
+
+  classDef tgt fill:#1a1530,stroke:#7c5cff,color:#e6edf3;
+  class D22 tgt;
+</pre>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3 · kbme_statistic data pipeline</h2>
+    <p class="sub">Raw logs + AD snapshots are consolidated into reporting tables. Data is current, but the DB
+       event scheduler is <span class="badge risk">DISABLED</span> — an external job drives the refresh.</p>
+    <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph src["Sources"]
+    direction TB
+    RAW["kbelog_db.kbelog<br/>raw KBE feature logs"]
+    AD["ad_service.adusers<br/>AD user / manager data"]
+  end
+
+  PROC["Stored procedure<br/>UpdateKBMELogs<br/>definer: martwitz@%"]
+
+  subgraph cron["External scheduler"]
+    EXT["cron / Task Scheduler<br/>calls procedure daily"]
+  end
+
+  subgraph out["kbme_statistic"]
+    direction TB
+    O1["kbmelogs"]
+    O2["aduser_snapshot"]
+  end
+
+  RAW --> PROC
+  AD --> PROC
+  EXT -.->|"CALL"| PROC
+  PROC --> O1
+  PROC --> O2
+
+  EVT["DB events<br/>UpdateKBMELogsEveryDay<br/>UpdateKBMELogsEvery"]
+  EVT -.->|"DISABLED since 2024-07"| PROC
+
+  classDef off fill:#2a1518,stroke:#f85149,color:#e6edf3;
+  classDef live fill:#132d1c,stroke:#3fb950,color:#e6edf3;
+  class EVT off;
+  class O1,O2 live;
+</pre>
+    </div>
+    <p class="note">If the daily refresh ever stalls, check the external scheduler and the general query log on
+       <span class="mono">edecdems015</span> for <span class="mono">CALL kbme_statistic.UpdateKBMELogs</span> — the DB
+       events have not run since July 2024 even though the data keeps growing.</p>
+  </section>
+
+  <footer class="page">Infrastructure dashboard · MariaDB MCP Server · diagrams via Mermaid 11.</footer>
+</div>
+
+<script src="vendor/mermaid.min.js"></script>
+<script>if(!window.mermaid){document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"><\/scr'+'ipt>');}</script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#2d3645',
+      lineColor: '#4aa8ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#11161d',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px'
+    }
+  });
+  document.addEventListener('DOMContentLoaded', async function () {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      try {
+        const out = document.createElement('div');
+        out.className = 'mermaid-out';
+        const res = await mermaid.render('mdiag-' + i, el.textContent);
+        out.innerHTML = res.svg;
+        el.replaceWith(out);
+      } catch (e) {
+        const err = document.createElement('div');
+        err.className = 'mermaid-error';
+        err.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+        el.replaceWith(err);
+      }
+    }
+  });
+</script>
+</body>
+</html>
