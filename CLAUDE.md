@@ -49,7 +49,12 @@ tail -f logs/mcp_server.log
 
 ### Core Components
 
-- **`src/server.py`**: `MariaDBServer` class using FastMCP. Contains all MCP tool definitions, connection pool management, and query execution. Entry point via `anyio.run()` with `functools.partial`.
+- **`src/server.py`**: `MariaDBServer` class — composes the mixins below and owns the cross-cutting concerns only: MCP tool *registration*, the `/health` endpoint + metrics, the async run loop, and the CLI entry point via `anyio.run()` with `functools.partial`. As of Phase 2, the class is split by concern (MRO: `MariaDBServer → PoolMixin → VectorToolsMixin → StandardToolsMixin → QueryMixin → ServerBase`):
+  - **`src/base.py`** — `ServerBase`: the single `__init__` + all shared instance state (pools, metrics, flags, embedding semaphore). No DB logic.
+  - **`src/db_pool.py`** — `PoolMixin`: connection-pool lifecycle (`initialize_pool`, `initialize_multiple_pools`, `_warmup_pool`, `close_pool`).
+  - **`src/query.py`** — `QueryMixin`: the read-only query gateway `_execute_query` + existence helpers (`_database_exists`, `_table_exists`, `_is_vector_store`). **Phase-3 hot spot** for the `%s`→`?` driver migration; `test_execute_query_unit.py` guards it. Reads `config.MCP_MAX_RESULTS` at call time (patchable).
+  - **`src/tools.py`** — `StandardToolsMixin`: the standard SQL tools.
+  - **`src/vector_store.py`** — `VectorToolsMixin`: the vector-store tools + the module-level `embedding_service` singleton.
 
 - **`src/config.py`**: Loads environment/.env configuration at import time. Sets up logging (console + rotating file at `logs/mcp_server.log`). Validates credentials and embedding provider, raising `ValueError` if required keys are missing.
 
@@ -150,10 +155,10 @@ HTTP/SSE transports expose `/health` endpoint returning:
 
 ## Repo Layout
 
-- `src/` — `server.py`, `config.py`, `embeddings.py`, `tests/`
+- `src/` — `server.py` (composition + registration/health/run), `base.py`, `db_pool.py`, `query.py`, `tools.py`, `vector_store.py`, `config.py`, `embeddings.py`, `tests/`
 - `scripts/exploration/` — ad-hoc DB inspection scripts; **env-based credentials only** (`_conn.py`)
 - `scripts/` — geography loader + MCP client demos
 - `docs/dashboards/` — self-contained HTML dashboards (architecture, infrastructure, status, tech stack, testing); open `index.html`. Mermaid is vendored under `docs/dashboards/vendor/` (git-ignored, CDN fallback in the HTML)
 - `.github/workflows/ci.yml` — lint/type gate + MariaDB-service test job
 
-A six-phase modernization is in progress; **Phases 0 & 1 (cleanup + tooling/CI) are complete**. Planned: refactor `server.py`, migrate `asyncmy` → official `mariadb` Connector 2.0 (changes `%s` placeholders to `?`), upgrade FastMCP `2.12` → `3.x`, add OpenTelemetry. See `docs/dashboards/implementation-status.html`.
+A six-phase modernization is in progress; **Phases 0, 1 & 2 (cleanup + tooling/CI + `server.py` refactor) are complete**. Planned: migrate `asyncmy` → official `mariadb` Connector 2.0 (changes `%s` placeholders to `?`), upgrade FastMCP `2.12` → `3.x`, add OpenTelemetry. See `docs/dashboards/implementation-status.html`.

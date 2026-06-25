@@ -137,7 +137,7 @@ class TestExecuteQueryUnit(unittest.IsolatedAsyncioTestCase):
         pool, cursor = _make_pool(rows=rows)
         server = self._server(read_only=True, pool=pool)
 
-        with patch("server.MCP_MAX_RESULTS", 2):
+        with patch("config.MCP_MAX_RESULTS", 2):
             result = await server._execute_query("SELECT n FROM t")
 
         self.assertEqual(len(result), 2)
@@ -147,7 +147,7 @@ class TestExecuteQueryUnit(unittest.IsolatedAsyncioTestCase):
         pool, cursor = _make_pool(rows=rows)
         server = self._server(read_only=True, pool=pool)
 
-        with patch("server.MCP_MAX_RESULTS", 2):
+        with patch("config.MCP_MAX_RESULTS", 2):
             result = await server._execute_query("SELECT n FROM t", limit_results=False)
 
         self.assertEqual(len(result), 5)
